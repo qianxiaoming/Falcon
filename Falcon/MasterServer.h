@@ -6,6 +6,7 @@
 #include <boost/asio/io_context.hpp>
 #include "HttpBase.h"
 #include "ServerBase.h"
+#include "sqlite3.h"
 
 namespace falcon {
 
@@ -13,7 +14,7 @@ struct MasterConfig
 {
 	MasterConfig();
 
-	std::string job_db_file;
+	sqlite3* master_db;
 
 	std::string slave_addr;
 	unsigned short slave_port;
@@ -30,8 +31,9 @@ public:
 	virtual std::string Get(std::string target, http::status& status, std::string& content_type);
 	virtual std::string Post(std::string target, const std::string& body, http::status& status, std::string& content_type);
 };
+typedef std::shared_ptr<MasterHandler> MasterHandlerPtr;
 
-#define MASTER_SERVER_NAME "Falcon-Master"
+typedef boost::shared_ptr<boost::asio::io_context> IOContextPtr;
 
 class MasterServer : public ServerBase
 {
@@ -64,15 +66,18 @@ public:
 	int StopService();
 
 private:
-	MasterConfig config;
+	MasterConfig     config;
 
-	boost::shared_ptr<boost::asio::io_context> client_ioctx;
-	std::shared_ptr<Listener>                  client_listener;
+	IOContextPtr     client_ioctx;
+	ListenerPtr      client_listener;
 
-	boost::shared_ptr<boost::asio::io_context> slave_ioctx;
-	std::shared_ptr<Listener>                  slave_listener;
+	IOContextPtr     slave_ioctx;
+	ListenerPtr      slave_listener;
 
-	std::shared_ptr<MasterHandler>             handler;
+	MasterHandlerPtr http_handler;
+
+	std::mutex       queue_mutex;
+	std::mutex       machine_mutex;
 };
 
 }

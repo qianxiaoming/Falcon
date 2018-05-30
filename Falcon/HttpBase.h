@@ -53,6 +53,7 @@ private:
 	tcp::socket   socket;
 	Handler*      handler;
 };
+typedef std::shared_ptr<Listener> ListenerPtr;
 
 class Session : public std::enable_shared_from_this<Session>
 {

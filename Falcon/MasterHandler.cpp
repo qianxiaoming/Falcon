@@ -1,6 +1,7 @@
 #define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
 #include <boost/algorithm/string.hpp>
+#include <json/json.h>
 #include "MasterServer.h"
 
 namespace falcon {
@@ -82,6 +83,13 @@ std::string MasterAPIv1::Get(std::string target, http::status& status, std::stri
 
 std::string MasterAPIv1::Post(std::string target, const std::string& body, http::status& status, std::string& content_type)
 {
+	Json::Value value;
+	Json::Reader reader;
+	if (!reader.parse(body, value, false)) {
+		status = http::status::bad_request;
+		content_type = "text/html";
+		return "Invalid json body";
+	}
 	return "Hello, This is Falcon Post Response!";
 }
 

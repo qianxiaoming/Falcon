@@ -1,8 +1,10 @@
 ﻿#define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
+#include <boost/filesystem.hpp>
 #include "Falcon.h"
 #include "HttpBase.h"
 #include "MasterServer.h"
+#include "Util.h"
 
 namespace falcon {
 
@@ -10,11 +12,12 @@ MasterConfig::MasterConfig()
 	: slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3),
 	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2)
 {
+	master_db = nullptr;
 }
 
 MasterServer::MasterServer()
 {
-	handler.reset(new MasterHandler());
+	http_handler.reset(new MasterHandler());
 }
 
 bool MasterServer::StartServer()
@@ -47,7 +50,7 @@ int MasterServer::StopServer()
 
 const char* MasterServer::GetName()
 {
-	return MASTER_SERVER_NAME;
+	return FALCON_MASTER_SERVER_NAME;
 }
 
 static MasterServer* master_instance = nullptr;
@@ -65,16 +68,58 @@ void MasterServer::Destory()
 	master_instance = nullptr;
 }
 
+static bool InitializeMasterDB(std::string db_file)
+{
+	sqlite3* db;
+	int rc = sqlite3_open(db_file.c_str(), &db);
+	if (rc) {
+		LOG(ERROR) << "Can't open master database file: " << sqlite3_errmsg(db);
+		sqlite3_close(db);
+		return false;
+	}
+	std::vector<std::string> sqls = { "create table Job(id          text primary key asc, \
+		                                                name        text, \
+		                                                type        text, \
+                                                        submit_time int, \
+                                                        exec_time   int, \
+                                                        finish_time int, \
+                                                        status      text)"};
+	for (std::string& sql : sqls) {
+		char* errmsg = NULL;
+		int rc = sqlite3_exec(db, sql.c_str(), NULL, NULL, &errmsg);
+		if (rc) {
+			LOG(ERROR) << "Failed to execute sql '" << sql << "<<': " << errmsg;
+			sqlite3_close(db);
+			boost::filesystem::remove(db_file);
+			return false;
+		}
+	}
+	
+	sqlite3_close(db);
+	return true;
+}
+
 bool MasterServer::LoadConfiguration()
 {
 	LOG(INFO) << "Loading service configuration...";
+	std::string db_file = Util::GetModulePath() + "/falcon_master.db";
+	if (!boost::filesystem::exists(db_file)) {
+		if (!InitializeMasterDB(db_file))
+			return false;
+	}
+
+	int rc = sqlite3_open(db_file.c_str(), &config.master_db);
+	if (config.master_db == nullptr) {
+		LOG(ERROR) << "Can not open master database file: " << db_file;
+		return false;
+	}
 	LOG(INFO) << "Configuration loaded";
 	return true;
 }
 
 bool MasterServer::RestoreHistorical()
 {
-	LOG(INFO) << "Restoring historical jobs from " << config.job_db_file << "...";
+	LOG(INFO) << "Restoring historical jobs...";
 	int total_running_jobs = 0;
 	LOG(INFO) << total_running_jobs <<" running job(s) restored";
 	return true;
@@ -88,7 +133,7 @@ bool MasterServer::SetupSlaveHTTP()
 	slave_ioctx = boost::make_shared<boost::asio::io_context>(config.slave_num_threads);
 	boost::asio::io_context& ioc = *slave_ioctx;
 
-	slave_listener = std::make_shared<Listener>(ioc, tcp::endpoint{ address, config.slave_port }, handler.get());
+	slave_listener = std::make_shared<Listener>(ioc, tcp::endpoint{ address, config.slave_port }, http_handler.get());
 	if (!slave_listener->IsListening()) {
 		slave_listener.reset();
 		return false;
@@ -106,7 +151,7 @@ bool MasterServer::SetupClientHTTP()
 	client_ioctx = boost::make_shared<boost::asio::io_context>(config.client_num_threads);
 	boost::asio::io_context& ioc = *client_ioctx;
 
-	client_listener = std::make_shared<Listener>(ioc, tcp::endpoint{ address, config.client_port }, handler.get());
+	client_listener = std::make_shared<Listener>(ioc, tcp::endpoint{ address, config.client_port }, http_handler.get());
 	if (!client_listener->IsListening()) {
 		client_listener.reset();
 		return false;
@@ -156,6 +201,10 @@ int MasterServer::StopService()
 		client_listener->Stop();
 	if (slave_listener)
 		slave_listener->Stop();
+	if (config.master_db) {
+		sqlite3_close(config.master_db);
+		config.master_db = nullptr;
+	}
 	return EXIT_SUCCESS;
 }
 

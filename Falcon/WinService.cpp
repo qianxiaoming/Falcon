@@ -6,6 +6,7 @@
 #define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
 #include "MasterServer.h"
+#include "Util.h"
 
 SERVICE_STATUS ServiceStatus;
 SERVICE_STATUS_HANDLE hServiceStatusHandle;
@@ -50,12 +51,7 @@ void WINAPI ServiceHandler(DWORD fdwControl)
 
 void WINAPI ServiceMain(int argc, char** argv)
 {
-	char module_name[256] = { 0 };
-	::GetModuleFileNameA(NULL, module_name, 256);
-	if (char* pos = strrchr(module_name, '\\')) {
-		*pos = 0;
-		FLAGS_log_dir = module_name;
-	}
+	FLAGS_log_dir = falcon::Util::GetModulePath();
 	google::InitGoogleLogging(server_base->GetName());
 
 	ServiceStatus.dwServiceType = SERVICE_WIN32;

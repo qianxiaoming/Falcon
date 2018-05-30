@@ -107,7 +107,7 @@
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalLibraryDirectories>$(BOOST_LIBRARY);$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>libglog.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>libglog.lib;jsoncpp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -148,6 +148,7 @@
     <ClCompile Include="HttpBase.cpp" />
     <ClCompile Include="MasterHandler.cpp" />
     <ClCompile Include="MasterServer.cpp" />
+    <ClCompile Include="sqlite3.c" />
     <ClCompile Include="WinService.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -155,6 +156,8 @@
     <ClInclude Include="HttpBase.h" />
     <ClInclude Include="MasterServer.h" />
     <ClInclude Include="ServerBase.h" />
+    <ClInclude Include="sqlite3.h" />
+    <ClInclude Include="Util.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
