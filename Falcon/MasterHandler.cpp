@@ -7,74 +7,75 @@
 
 namespace falcon {
 
-/*
-1. Submit new job
-   POST /api/v1/jobs
-   Batch job:
-      {
-	       "name": "name of new job",
-		   "type": "batch",
-		   "exec": "d:/myprogm.exe",
-		   "tasks": [
-		       {
-			       "name": "task1",
-				   "exec": "d:/myprogm.exe",
-				   "args": "",
-				   "parallel": 10
-			   },
-			   {
-			   "name": "task2",
-			   "args": "d:/test/data.txt"
-			   }
-		   ]
-	   }
-	DAG job:
-	   {
-	       "name": "name of new job",
-		   "type": "dag",
-		   "jobs": [
-		       {
-			       "name": "group1",
-				   "type": "batch",
-				   "exec": "d:/myprogm.exe",
-				   "tasks": [
-				       {
-					       "name": "task1",
-						   "args": ""
-					   }
-				   ]
-			   },
-			   {
-			       "name": "group2",
-				   "type": "batch",
-				   "depends": "group1",
-				   "exec": "d:/myprogm.exe",
-				   "tasks": [
-				       {
-					       "name": "task2",
-						   "args": ""
-					   }
-				   ]
-			   }
-		   ]
-	   }
-*/
+typedef std::map<std::string, std::string> URLParamMap;
 
 struct HandleFunc
 {
 	virtual ~HandleFunc() { }
-	virtual std::string Get(MasterServer* server, std::string target, http::status& status) { return std::string(); }
-	virtual std::string Post(MasterServer* server, std::string target, const std::string& body, http::status& status) { return std::string(); }
+	virtual std::string Get(MasterServer* server, std::string target, const URLParamMap& params, http::status& status) { return std::string(); }
+	virtual std::string Post(MasterServer* server, std::string target, const URLParamMap& params, const std::string& body, http::status& status) { return std::string(); }
 };
 
+/*
+1. Submit new job
+POST /api/v1/jobs
+Batch job:
+{
+	"name": "name of new job",
+	"type": "batch",
+	"exec": "d:/myprogm.exe",
+	"tasks": [
+		{
+			"name": "task1",
+			"exec": "d:/myprogm.exe",
+			"args": "",
+			"parallel": 10
+		},
+		{
+			"name": "task2",
+			"args": "d:/test/data.txt"
+		}
+	]
+}
+DAG job:
+{
+	"name": "name of new job",
+	"type": "dag",
+	"jobs": [
+		{
+			"name": "group1",
+			"type": "batch",
+			"exec": "d:/myprogm.exe",
+			"tasks": [
+				{
+					"name": "task1",
+					"args": ""
+				}
+			]
+		},
+		{
+			"name": "group2",
+			"type": "batch",
+			"depends": "group1",
+			"exec": "d:/myprogm.exe",
+			"tasks": [
+				{
+					"name": "task2",
+					"args": ""
+				}
+			]
+		}
+	]
+}
+*/
 struct JobsFunc : public HandleFunc
 {
-	virtual std::string Get(MasterServer* server, std::string target, http::status& status)
+	virtual std::string Get(MasterServer* server, std::string target, const URLParamMap& params, http::status& status)
 	{
 		return "{ \"success\": true, \"jobs\" : [] }";
 	}
 
-	virtual std::string Post(MasterServer* server, std::string target, const std::string& body, http::status& status)
+	virtual std::string Post(MasterServer* server, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
 	{
 		return std::string();
 	}
@@ -84,12 +85,9 @@ struct MasterAPI
 {
 	HandleFunc* FindHandleFunc(const std::string& target)
 	{
-		std::list<std::pair<std::string, HandleFunc*>>::iterator begin = handle_funcs.begin(),
-			end = handle_funcs.end();
-		while (begin != end) {
-			if (begin->first == target)
-				return begin->second;
-			begin++;
+		for (auto& v : handle_funcs) {
+			if (v.first == target)
+				return v.second;
 		}
 		return nullptr;
 	}
@@ -110,6 +108,24 @@ void MasterServer::SetupAPITable()
 	APIVersionTable[0] = &v1;
 }
 
+static std::string ParseHttpURL(const std::string& target, int offset, URLParamMap& params)
+{
+	std::size_t pos = target.find('?');
+	if (pos == std::string::npos)
+		return target.substr(offset);
+	std::string api_target = target.substr(offset, pos - offset);
+
+	std::vector<std::string> p;
+	boost::split(p, target.substr(pos + 1), boost::is_any_of("&"));
+	for (auto& s : p) {
+		pos = s.find('=');
+		if (pos == std::string::npos)
+			continue;
+		params[s.substr(0, pos)] = s.substr(pos + 1);
+	}
+	return api_target;
+}
+
 std::string MasterServer::HandleClientRequest(
 	http::verb verb,
 	const std::string& target,
@@ -117,18 +133,20 @@ std::string MasterServer::HandleClientRequest(
 	http::status& status)
 {
 	MasterAPI* api = nullptr;
-	std::string handle_target;
+	int offset = 0;
 	if (boost::istarts_with(target, "/api/v1/")) {
 		api = APIVersionTable[0];
-		handle_target = target.substr(sizeof("/api/v1/") - 2);
+		offset = sizeof("/api/v1/") - 2;
 	}
+	URLParamMap params;
+	std::string api_target = ParseHttpURL(target, offset, params);
 	if (api) {
-		HandleFunc* func = api->FindHandleFunc(handle_target);
+		HandleFunc* func = api->FindHandleFunc(api_target);
 		if (func) {
 			if (verb == http::verb::get)
-				return func->Get(this, handle_target, status);
+				return func->Get(this, api_target, params, status);
 			else if (verb == http::verb::post)
-				return func->Post(this, handle_target, body, status);
+				return func->Post(this, api_target, params, body, status);
 			else {
 				status = http::status::bad_request;
 				return "Unsupported HTTP-method";
