@@ -2,6 +2,7 @@
 #include <glog/logging.h>
 #include <boost/algorithm/string.hpp>
 #include <json/json.h>
+#include "Falcon.h"
 #include "MasterServer.h"
 
 namespace falcon {
@@ -31,9 +32,10 @@ namespace falcon {
 	   {
 	       "name": "name of new job",
 		   "type": "dag",
-		   "groups": [
+		   "jobs": [
 		       {
 			       "name": "group1",
+				   "type": "batch",
 				   "exec": "d:/myprogm.exe",
 				   "tasks": [
 				       {
@@ -44,6 +46,7 @@ namespace falcon {
 			   },
 			   {
 			       "name": "group2",
+				   "type": "batch",
 				   "depends": "group1",
 				   "exec": "d:/myprogm.exe",
 				   "tasks": [
@@ -57,76 +60,92 @@ namespace falcon {
 	   }
 */
 
-class MasterAPI
+struct HandleFunc
 {
-public:
-	virtual std::string Get(std::string target, http::status& status, std::string& content_type) = 0;
-	virtual std::string Post(std::string target, const std::string& body, http::status& status, std::string& content_type) = 0;
+	virtual ~HandleFunc() { }
+	virtual std::string Get(MasterServer* server, std::string target, http::status& status) { return std::string(); }
+	virtual std::string Post(MasterServer* server, std::string target, const std::string& body, http::status& status) { return std::string(); }
+};
+
+struct JobsFunc : public HandleFunc
+{
+	virtual std::string Get(MasterServer* server, std::string target, http::status& status)
+	{
+		return "{ \"success\": true, \"jobs\" : [] }";
+	}
+
+	virtual std::string Post(MasterServer* server, std::string target, const std::string& body, http::status& status)
+	{
+		return std::string();
+	}
+};
+
+struct MasterAPI
+{
+	HandleFunc* FindHandleFunc(const std::string& target)
+	{
+		std::list<std::pair<std::string, HandleFunc*>>::iterator begin = handle_funcs.begin(),
+			end = handle_funcs.end();
+		while (begin != end) {
+			if (begin->first == target)
+				return begin->second;
+			begin++;
+		}
+		return nullptr;
+	}
+	void RegisterHandleFunc(const std::string& target, HandleFunc* func)
+	{
+		handle_funcs.push_back(std::make_pair(target, func));
+	}
+	std::list<std::pair<std::string, HandleFunc*>> handle_funcs;
 };
 static const int API_MAX_VERSION = 1;
 static MasterAPI* APIVersionTable[API_MAX_VERSION] = { nullptr };
 
-class MasterAPIv1 : public MasterAPI
+void MasterServer::SetupAPITable()
 {
-public:
-	MasterAPIv1() { APIVersionTable[0] = this; }
+	static MasterAPI v1;
+	v1.RegisterHandleFunc("/jobs", new JobsFunc());
 
-	virtual std::string Get(std::string target, http::status& status, std::string& content_type);
-
-	virtual std::string Post(std::string target, const std::string& body, http::status& status, std::string& content_type);
-};
-
-std::string MasterAPIv1::Get(std::string target, http::status& status, std::string& content_type)
-{
-	return "Hello, This is Falcon Get Response!";
+	APIVersionTable[0] = &v1;
 }
 
-std::string MasterAPIv1::Post(std::string target, const std::string& body, http::status& status, std::string& content_type)
+std::string MasterServer::HandleClientRequest(
+	http::verb verb,
+	const std::string& target,
+	const std::string& body,
+	http::status& status)
 {
-	Json::Value value;
-	Json::Reader reader;
-	if (!reader.parse(body, value, false)) {
-		status = http::status::bad_request;
-		content_type = "text/html";
-		return "Invalid json body";
+	MasterAPI* api = nullptr;
+	std::string handle_target;
+	if (boost::istarts_with(target, "/api/v1/")) {
+		api = APIVersionTable[0];
+		handle_target = target.substr(sizeof("/api/v1/") - 2);
 	}
-	return "Hello, This is Falcon Post Response!";
-}
-
-static MasterAPI* SelectAPIVersion(const std::string& target, http::status& status, std::string& content_type)
-{
-	static MasterAPIv1 apiv1;
-
-	std::vector<std::string> tokens;
-	boost::split(tokens, target, boost::is_any_of("/"), boost::token_compress_on);
-	if (tokens.empty() || !boost::iequals(tokens[1], "api") || !boost::istarts_with(tokens[2], "v")) {
-		status = http::status::bad_request;
-		content_type = "text/html";
-		return nullptr;
+	if (api) {
+		HandleFunc* func = api->FindHandleFunc(handle_target);
+		if (func) {
+			if (verb == http::verb::get)
+				return func->Get(this, handle_target, status);
+			else if (verb == http::verb::post)
+				return func->Post(this, handle_target, body, status);
+			else {
+				status = http::status::bad_request;
+				return "Unsupported HTTP-method";
+			}
+		}
 	}
-	int version = std::atoi(&tokens[2][1]);
-	if (version <= 0 || version > API_MAX_VERSION) {
-		status = http::status::bad_request;
-		content_type = "text/html";
-		return nullptr;
-	}
-	return APIVersionTable[version - 1];
+	status = http::status::bad_request;
+	return "Illegal request-target";
 }
 
-std::string MasterHandler::Get(std::string target, http::status& status, std::string& content_type)
+std::string MasterServer::HandleSlaveRequest(
+	http::verb verb,
+	const std::string& target,
+	const std::string& body,
+	http::status& status)
 {
-	MasterAPI* api = SelectAPIVersion(target, status, content_type);
-	if (api == nullptr)
-		return "Invalid API version";
-	return api->Get(target, status, content_type);
-}
-
-std::string MasterHandler::Post(std::string target, const std::string& body, http::status& status, std::string& content_type)
-{
-	MasterAPI* api = SelectAPIVersion(target, status, content_type);
-	if (api == nullptr)
-		return "Invalid API version";
-	return api->Post(target, body, status, content_type);
+	return std::string();
 }
 
 }

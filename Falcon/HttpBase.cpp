@@ -4,7 +4,7 @@
 
 namespace falcon {
 
-Listener::Listener(boost::asio::io_context& ioc, tcp::endpoint endpoint, Handler* h)
+Listener::Listener(boost::asio::io_context& ioc, tcp::endpoint endpoint, HttpHandler h)
 	: acceptor(ioc), socket(ioc), handler(h)
 {
 	boost::system::error_code ec;
@@ -72,7 +72,7 @@ void Listener::OnAccept(boost::system::error_code ec)
 		DoAccept();
 }
 
-Session::Session(tcp::socket s, Handler* h)
+Session::Session(tcp::socket s, HttpHandler h)
 	: socket(std::move(s)), strand(socket.get_executor()), lambda_func(*this), handler(h)
 {
 }
@@ -100,7 +100,7 @@ void Session::DoRead()
 }
 
 template<typename Body, typename Allocator, typename Send>
-void HandleRequest(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send, Handler* handler)
+void HandleRequest(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send, HttpHandler handler)
 {
 	// Returns a bad request response
 	auto const bad_request = [&req](boost::beast::string_view why)
@@ -141,19 +141,15 @@ void HandleRequest(http::request<Body, http::basic_fields<Allocator>>&& req, Sen
 	// Make sure we can handle the method
 	if (req.method() != http::verb::get &&
 		req.method() != http::verb::post)
-		return send(bad_request("Unknown HTTP-method"));
+		return send(bad_request("Unsupported HTTP-method"));
 
 	if (req.target().empty())
 		return send(bad_request("Illegal request-target"));
 
 	http::status status = http::status::ok;
-	std::string content_type("application/json");
 	std::string response;
 	try {
-		if (req.method() == http::verb::get)
-			response = handler->Get(std::string(req.target()), status, content_type);
-		else if (req.method() == http::verb::post)
-			response = handler->Post(std::string(req.target()), req.body(), status, content_type);
+		response = handler(req.method(), std::string(req.target()), req.body(), status);
 	}
 	catch (std::exception& ex) {
 		return send(server_error(ex.what()));
@@ -161,7 +157,7 @@ void HandleRequest(http::request<Body, http::basic_fields<Allocator>>&& req, Sen
 
 	http::response<http::string_body> res{ status, 11 };
 	res.set(http::field::server, "Falcon");
-	res.set(http::field::content_type, content_type);
+	res.set(http::field::content_type, "application/json");
 	res.keep_alive(req.keep_alive());
 	res.body() = response;
 	res.prepare_payload();

@@ -11,6 +11,7 @@
 #include <vector>
 #include <boost/smart_ptr.hpp>
 #include <boost/enable_shared_from_this.hpp>
+#include <boost/function.hpp>
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
@@ -25,17 +26,15 @@ namespace falcon {
 using tcp = boost::asio::ip::tcp;
 namespace http = boost::beast::http;
 
-class Handler
-{
-public:
-	virtual std::string Get(std::string target, http::status& status, std::string& content_type) = 0;
-	virtual std::string Post(std::string target, const std::string& body, http::status& status, std::string& content_type) = 0;
-};
+typedef boost::function<std::string (http::verb, 
+	                                 const std::string&,
+	                                 const std::string&,
+	                                 http::status&)> HttpHandler;
 
 class Listener : public std::enable_shared_from_this<Listener>
 {
 public:
-	Listener(boost::asio::io_context& ioc, tcp::endpoint endpoint, Handler* handler);
+	Listener(boost::asio::io_context& ioc, tcp::endpoint endpoint, HttpHandler handler);
 
 	void Accept();
 
@@ -51,14 +50,14 @@ public:
 private:
 	tcp::acceptor acceptor;
 	tcp::socket   socket;
-	Handler*      handler;
+	HttpHandler   handler;
 };
 typedef std::shared_ptr<Listener> ListenerPtr;
 
 class Session : public std::enable_shared_from_this<Session>
 {
 public:
-	explicit Session(tcp::socket socket, Handler* handler);
+	explicit Session(tcp::socket socket, HttpHandler handler);
 
 	void Run();
 
@@ -104,7 +103,7 @@ private:
 	http::request<http::string_body> request;
 	std::shared_ptr<void> response;
 
-	Handler* handler;
+	HttpHandler handler;
 };
 
 }

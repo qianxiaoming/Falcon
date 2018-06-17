@@ -25,14 +25,6 @@ struct MasterConfig
 	int client_num_threads;
 };
 
-class MasterHandler : public Handler
-{
-public:
-	virtual std::string Get(std::string target, http::status& status, std::string& content_type);
-	virtual std::string Post(std::string target, const std::string& body, http::status& status, std::string& content_type);
-};
-typedef std::shared_ptr<MasterHandler> MasterHandlerPtr;
-
 typedef boost::shared_ptr<boost::asio::io_context> IOContextPtr;
 
 class MasterServer : public ServerBase
@@ -65,7 +57,22 @@ public:
 
 	int StopService();
 
+public:
+	std::string HandleClientRequest(
+		http::verb verb,
+		const std::string& target,
+		const std::string& body,
+		http::status& status);
+
+	std::string HandleSlaveRequest(
+		http::verb verb,
+		const std::string& target,
+		const std::string& body,
+		http::status& status);
+
 private:
+	void SetupAPITable();
+
 	MasterConfig     config;
 
 	IOContextPtr     client_ioctx;
@@ -74,10 +81,11 @@ private:
 	IOContextPtr     slave_ioctx;
 	ListenerPtr      slave_listener;
 
-	MasterHandlerPtr http_handler;
-
 	std::mutex       queue_mutex;
+	JobList          job_queue;
+
 	std::mutex       machine_mutex;
+	MachineMap       machines;
 };
 
 }

@@ -1,6 +1,7 @@
 ﻿#define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
 #include <boost/filesystem.hpp>
+#include <boost/bind.hpp>
 #include "Falcon.h"
 #include "HttpBase.h"
 #include "MasterServer.h"
@@ -17,7 +18,6 @@ MasterConfig::MasterConfig()
 
 MasterServer::MasterServer()
 {
-	http_handler.reset(new MasterHandler());
 }
 
 bool MasterServer::StartServer()
@@ -31,6 +31,7 @@ bool MasterServer::StartServer()
 		return false;
 	if (!server->SetupClientHTTP())
 		return false;
+	server->SetupAPITable();
 	return true;
 }
 
@@ -133,7 +134,10 @@ bool MasterServer::SetupSlaveHTTP()
 	slave_ioctx = boost::make_shared<boost::asio::io_context>(config.slave_num_threads);
 	boost::asio::io_context& ioc = *slave_ioctx;
 
-	slave_listener = std::make_shared<Listener>(ioc, tcp::endpoint{ address, config.slave_port }, http_handler.get());
+	slave_listener = std::make_shared<Listener>(
+		ioc,
+		tcp::endpoint{ address, config.slave_port },
+		boost::bind(&MasterServer::HandleSlaveRequest, this, _1, _2, _3, _4));
 	if (!slave_listener->IsListening()) {
 		slave_listener.reset();
 		return false;
@@ -151,7 +155,9 @@ bool MasterServer::SetupClientHTTP()
 	client_ioctx = boost::make_shared<boost::asio::io_context>(config.client_num_threads);
 	boost::asio::io_context& ioc = *client_ioctx;
 
-	client_listener = std::make_shared<Listener>(ioc, tcp::endpoint{ address, config.client_port }, http_handler.get());
+	client_listener = std::make_shared<Listener>(ioc,
+		tcp::endpoint{ address, config.client_port },
+		boost::bind(&MasterServer::HandleClientRequest, this, _1, _2, _3, _4));
 	if (!client_listener->IsListening()) {
 		client_listener.reset();
 		return false;
