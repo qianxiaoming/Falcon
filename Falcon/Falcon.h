@@ -91,6 +91,9 @@ protected:
 typedef boost::shared_ptr<Job> JobPtr;
 typedef std::list<JobPtr>      JobList;
 
+const char* ToString(Job::Type type);
+const char* ToString(Job::State state);
+
 class BatchJob : public Job
 {
 public:

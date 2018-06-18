@@ -2,22 +2,47 @@
 #define FALCON_UTIL_H
 
 #include <string>
+#include <mutex>
+#include <json/json.h>
+#include "sqlite3.h"
 
 namespace falcon {
 
-class Util
+struct Util
 {
-public:
-	static std::string GetModulePath()
+	static std::string GetModulePath();
+
+	static bool ParseJsonFromString(const std::string& json, Json::Value& value);
+
+	static std::string UUID();
+};
+
+struct LockGuard
+{
+	LockGuard(std::mutex* m) : mutex(m), locked(false) { }
+	~LockGuard()
 	{
-		char module_name[256] = { 0 };
-		::GetModuleFileNameA(NULL, module_name, 256);
-		if (char* pos = strrchr(module_name, '\\')) {
-			*pos = 0;
-			return module_name;
-		}
-		return "";
+		if (locked)
+			mutex->unlock();
 	}
+	void Lock()
+	{
+		if (!locked) {
+			mutex->lock();
+			locked = true;
+		}
+	}
+	std::mutex* mutex;
+	bool locked;
+};
+
+struct SqliteDB : public LockGuard
+{
+	SqliteDB(sqlite3* h, std::mutex* m) : LockGuard(m), handle(h) { }
+	operator sqlite3*() { Lock(); return handle; }
+	bool Execute(const std::string& sql, std::string& err);
+
+	sqlite3* handle;
 };
 
 }

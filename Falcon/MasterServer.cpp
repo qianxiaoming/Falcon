@@ -13,10 +13,9 @@ MasterConfig::MasterConfig()
 	: slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3),
 	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2)
 {
-	master_db = nullptr;
 }
 
-MasterServer::MasterServer()
+MasterServer::MasterServer() : master_db(nullptr)
 {
 }
 
@@ -78,13 +77,13 @@ static bool InitializeMasterDB(std::string db_file)
 		sqlite3_close(db);
 		return false;
 	}
-	std::vector<std::string> sqls = { "create table Job(id          text primary key asc, \
+	std::vector<std::string> sqls = { "create table Job(id          text primary key, \
 		                                                name        text, \
 		                                                type        text, \
                                                         submit_time int, \
                                                         exec_time   int, \
                                                         finish_time int, \
-                                                        status      text)"};
+                                                        state       text)"};
 	for (std::string& sql : sqls) {
 		char* errmsg = NULL;
 		int rc = sqlite3_exec(db, sql.c_str(), NULL, NULL, &errmsg);
@@ -102,15 +101,15 @@ static bool InitializeMasterDB(std::string db_file)
 
 bool MasterServer::LoadConfiguration()
 {
-	LOG(INFO) << "Loading service configuration...";
+	LOG(INFO) << "Loading master server configuration...";
 	std::string db_file = Util::GetModulePath() + "/falcon_master.db";
 	if (!boost::filesystem::exists(db_file)) {
 		if (!InitializeMasterDB(db_file))
 			return false;
 	}
 
-	int rc = sqlite3_open(db_file.c_str(), &config.master_db);
-	if (config.master_db == nullptr) {
+	int rc = sqlite3_open(db_file.c_str(), &master_db);
+	if (master_db == nullptr) {
 		LOG(ERROR) << "Can not open master database file: " << db_file;
 		return false;
 	}
@@ -207,11 +206,16 @@ int MasterServer::StopService()
 		client_listener->Stop();
 	if (slave_listener)
 		slave_listener->Stop();
-	if (config.master_db) {
-		sqlite3_close(config.master_db);
-		config.master_db = nullptr;
+	if (master_db) {
+		sqlite3_close(master_db);
+		master_db = nullptr;
 	}
 	return EXIT_SUCCESS;
+}
+
+SqliteDB MasterServer::MasterDB()
+{
+	return SqliteDB(master_db, &db_mutex);
 }
 
 }

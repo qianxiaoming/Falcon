@@ -6,15 +6,13 @@
 #include <boost/asio/io_context.hpp>
 #include "HttpBase.h"
 #include "ServerBase.h"
-#include "sqlite3.h"
+#include "Util.h"
 
 namespace falcon {
 
 struct MasterConfig
 {
 	MasterConfig();
-
-	sqlite3* master_db;
 
 	std::string slave_addr;
 	unsigned short slave_port;
@@ -70,10 +68,15 @@ public:
 		const std::string& body,
 		http::status& status);
 
+	SqliteDB MasterDB();
+
 private:
 	void SetupAPITable();
 
 	MasterConfig     config;
+
+	std::mutex       db_mutex;
+	sqlite3*         master_db;
 
 	IOContextPtr     client_ioctx;
 	ListenerPtr      client_listener;
