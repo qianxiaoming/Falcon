@@ -5,17 +5,19 @@
 #include "Falcon.h"
 #include "HttpBase.h"
 #include "MasterServer.h"
+#include "Scheduler.h"
 #include "Util.h"
 
 namespace falcon {
 
 MasterConfig::MasterConfig()
 	: slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3),
-	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2)
+	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2),
+	  dispatch_num_threads(2)
 {
 }
 
-MasterServer::MasterServer() : master_db(nullptr)
+MasterServer::MasterServer()
 {
 }
 
@@ -30,7 +32,7 @@ bool MasterServer::StartServer()
 		return false;
 	if (!server->SetupClientHTTP())
 		return false;
-	server->SetupAPITable();
+	server->SetupAPIHandler();
 	return true;
 }
 
@@ -108,8 +110,8 @@ bool MasterServer::LoadConfiguration()
 			return false;
 	}
 
-	int rc = sqlite3_open(db_file.c_str(), &master_db);
-	if (master_db == nullptr) {
+	int rc = sqlite3_open(db_file.c_str(), &data_state.master_db);
+	if (data_state.master_db == nullptr) {
 		LOG(ERROR) << "Can not open master database file: " << db_file;
 		return false;
 	}
@@ -166,24 +168,42 @@ bool MasterServer::SetupClientHTTP()
 	return true;
 }
 
+static void DispatchTaskLoop(DispatchTaskQueue& task_queue, boost::function<bool(std::string, std::string, std::string&)> requeue_task)
+{
+	DispatchTask* task;
+	while (true) {
+		task = nullptr;
+		task_queue.wait_dequeue(task);
+		if (task == nullptr)
+			break;
+
+
+		delete task;
+	}
+}
+
 void MasterServer::Run()
 {
 	LOG(INFO) << "Master server is running...";
-	int count = 2;
+	int count = 4;
 	std::mutex mutex;
 	std::condition_variable cond;
 
-	auto const worker_thread_func = [&count, &cond, &mutex](boost::asio::io_context* ioctx, int num_threads)
+	auto const notify_thread_exit = [&count, &cond, &mutex]()
+	{
+		std::unique_lock<std::mutex> lock(mutex);
+		count--;
+		cond.notify_all();
+	};
+
+	auto const worker_thread_func = [&notify_thread_exit](boost::asio::io_context* ioctx, int num_threads)
 	{
 		for (int i = num_threads - 1; i > 0; --i) {
 			std::thread t([&ioctx] { ioctx->run(); });
 			t.detach();
 		}
 		ioctx->run();
-
-		std::unique_lock<std::mutex> lock(mutex);
-		count--;
-		cond.notify_all();
+		notify_thread_exit();
 	};
 
 	// run threads for clients
@@ -194,7 +214,50 @@ void MasterServer::Run()
 	std::thread slave_thread(worker_thread_func, slave_ioctx.get(), config.slave_num_threads);
 	slave_thread.detach();
 
-	// wait worker threads
+	// run schedule thread
+	ScheduleEventQueue& sched_queue   = sched_event_queue;
+	DispatchTaskQueue& dispatch_queue = dispatch_task_queue;
+	auto const sched_thread_func = [&notify_thread_exit, &sched_queue, &dispatch_queue](MasterServer* server)
+	{
+		int sched_count = 0;
+		while (true) {
+			sched_count++;
+			LOG(INFO) << "Start scheduling cycle(" << sched_count << ")...";
+
+			Scheduler scheduler(server);
+			Scheduler::Table table = scheduler.ScheduleTasks();
+			if (!table.empty()) {
+
+			}
+			LOG(INFO) << "Scheduling cycle done";
+
+			ScheduleEvent evt;
+			sched_queue.wait_dequeue(evt);
+			if (evt == ScheduleEvent::Stop)
+				break;
+		}
+		notify_thread_exit();
+	};
+	std::thread sched_thread(sched_thread_func, this);
+	sched_thread.detach();
+
+	// run dispatching thread
+	boost::function<bool(std::string, std::string, std::string&)> requeue_task =
+		boost::bind(&DataState::SetTaskState, &data_state, _1, _2, Task::State::Queued, _3);
+	auto const dispatch_thread_func = [&notify_thread_exit, &dispatch_queue, &requeue_task](int num_threads)
+	{
+		for (int i = num_threads - 1; i > 0; --i) {
+			std::thread t([&dispatch_queue, &requeue_task] { DispatchTaskLoop(dispatch_queue, requeue_task); });
+			t.detach();
+		}
+		DispatchTaskLoop(dispatch_queue, requeue_task);
+
+		notify_thread_exit();
+	};
+	std::thread dispatch_thread(dispatch_thread_func, config.dispatch_num_threads);
+	dispatch_thread.detach();
+
+	// wait all threads
 	std::unique_lock <std::mutex> lock(mutex);
 	cond.wait(lock, [&count] { return count == 0; });
 	LOG(INFO) << "Master server is going to shutdown";
@@ -202,20 +265,59 @@ void MasterServer::Run()
 
 int MasterServer::StopService()
 {
+	is_stopped.store(true);
+	// terminate scheduler thread and dispatching thread
+	sched_event_queue.enqueue(ScheduleEvent::Stop);
+	for (int i = 0; i < config.dispatch_num_threads; i++)
+		dispatch_task_queue.enqueue(nullptr);
+
 	if (client_listener)
 		client_listener->Stop();
 	if (slave_listener)
 		slave_listener->Stop();
-	if (master_db) {
-		sqlite3_close(master_db);
-		master_db = nullptr;
+	if (data_state.master_db) {
+		sqlite3_close(data_state.master_db);
+		data_state.master_db = nullptr;
 	}
 	return EXIT_SUCCESS;
 }
 
-SqliteDB MasterServer::MasterDB()
+void MasterServer::NotifyScheduleEvent(ScheduleEvent evt)
 {
-	return SqliteDB(master_db, &db_mutex);
+	sched_event_queue.enqueue(evt);
+}
+
+bool MasterServer::DataState::InsertNewJob(std::string job_id, std::string name, Job::Type type, const Json::Value& value, std::string& err)
+{
+	// save attributes of new job into database
+	time_t submit_time = time(NULL);
+	SqliteDB db(master_db, &db_mutex);
+	std::ostringstream oss;
+	oss << "insert into Job(id,name,type,submit_time,state) values('" << job_id << "','" << name << "','"
+		<< ToString(type) << "'," << submit_time << ",'" << ToString(Job::State::Queued) << "')";
+	if (!db.Execute(oss.str(), err)) {
+		err = "Failed to write new job into database: " + err;
+		return false;
+	}
+	db.Unlock();
+
+	// create job object and add it to queue
+	JobPtr job;
+	if (type == Job::Type::Batch)
+		job.reset(new BatchJob(job_id, name));
+	else
+		job.reset(new DAGJob(job_id, name));
+	job->submit_time = submit_time;
+	job->Assign(value);
+	
+	std::lock_guard<std::mutex> lock(queue_mutex);
+	job_queue.push_back(job);
+	return true;
+}
+
+bool MasterServer::DataState::SetTaskState(std::string job_id, std::string task_id, Task::State state, std::string& err)
+{
+	return true;
 }
 
 }

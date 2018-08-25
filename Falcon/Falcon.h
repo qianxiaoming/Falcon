@@ -52,7 +52,7 @@ struct Job;
 */
 struct Task
 {
-	enum class State { Queued, Scheduling, Dispatching, Executing, Completed, Failed, Aborted, Terminated };
+	enum class State { Queued, Dispatching, Executing, Completed, Failed, Aborted, Terminated };
 	struct Status
 	{
 		Status() : state(State::Queued), exit_normal(true), exit_code(0) { }

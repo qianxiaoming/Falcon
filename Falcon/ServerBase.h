@@ -16,8 +16,12 @@ public:
 
 	virtual const char* GetName() = 0;
 
+	bool IsStopped() const { return is_stopped.load(); }
+
 protected:
-	ServerBase() { };
+	ServerBase() : is_stopped(false) { };
+
+	std::atomic<bool> is_stopped;
 };
 
 }

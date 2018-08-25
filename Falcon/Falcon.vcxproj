@@ -151,14 +151,18 @@
     <ClCompile Include="HttpBase.cpp" />
     <ClCompile Include="MasterHandler.cpp" />
     <ClCompile Include="MasterServer.cpp" />
+    <ClCompile Include="Scheduler.cpp" />
     <ClCompile Include="sqlite3.c" />
     <ClCompile Include="Util.cpp" />
     <ClCompile Include="WinService.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="blockingconcurrentqueue.h" />
+    <ClInclude Include="concurrentqueue.h" />
     <ClInclude Include="Falcon.h" />
     <ClInclude Include="HttpBase.h" />
     <ClInclude Include="MasterServer.h" />
+    <ClInclude Include="Scheduler.h" />
     <ClInclude Include="ServerBase.h" />
     <ClInclude Include="sqlite3.h" />
     <ClInclude Include="Util.h" />

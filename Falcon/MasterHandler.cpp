@@ -43,28 +43,16 @@ struct JobsHandler : public Handler
 		ofs << body;
 		ofs.close();
 
-		// save attributes of new job into database
-		time_t submit_time = time(NULL);
-		SqliteDB db = server->MasterDB();
-		std::ostringstream oss;
-		oss << "insert into Job(id,name,type,submit_time,state) values('" << job_id << "','" << value["name"].asString() << "','"
-			<< value["type"].asString() << "'," << submit_time << ",'" << ToString(Job::State::Queued) << "')";
-		if (!db.Execute(oss.str(), err)) {
+		// save new job into database
+		if (!server->GetDataState().InsertNewJob(job_id, value["name"].asString(), FromString<Job::Type>(value["type"].asCString()), value, err)) {
 			boost::filesystem::remove_all(job_dir, ec);
 			boost::filesystem::remove(job_dir, ec);
-			return "Failed to write new job into database: " + err;
+			return err;
 		}
 
-		// create job object and add it to queue
-		JobPtr job;
-		if (FromString<Job::Type>(value["type"].asCString()) == Job::Type::Batch)
-			job.reset(new BatchJob(job_id, value["name"].asString()));
-		else
-			job.reset(new DAGJob(job_id, value["name"].asString()));
-		job->submit_time = submit_time;
-		job->Assign(value);
-
 		// notify scheduler thread by new job event
+		server->NotifyScheduleEvent(ScheduleEvent::JobSubmit);
+
 		// reply the client with new job id
 		return job_id;
 	}
@@ -89,7 +77,7 @@ struct MasterAPI
 static const int API_MAX_VERSION = 1;
 static MasterAPI* APIVersionTable[API_MAX_VERSION] = { nullptr };
 
-void MasterServer::SetupAPITable()
+void MasterServer::SetupAPIHandler()
 {
 	static MasterAPI v1;
 	v1.RegisterHandler("/jobs", new JobsHandler());

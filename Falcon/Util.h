@@ -22,8 +22,7 @@ struct LockGuard
 	LockGuard(std::mutex* m) : mutex(m), locked(false) { }
 	~LockGuard()
 	{
-		if (locked)
-			mutex->unlock();
+		Unlock();
 	}
 	void Lock()
 	{
@@ -31,6 +30,12 @@ struct LockGuard
 			mutex->lock();
 			locked = true;
 		}
+	}
+	void Unlock()
+	{
+		if (locked)
+			mutex->unlock();
+		locked = false;
 	}
 	std::mutex* mutex;
 	bool locked;

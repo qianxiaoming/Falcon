@@ -4,6 +4,7 @@
 #include <string>
 #include <boost/smart_ptr.hpp>
 #include <boost/asio/io_context.hpp>
+#include "blockingconcurrentqueue.h"
 #include "HttpBase.h"
 #include "ServerBase.h"
 #include "Util.h"
@@ -21,7 +22,24 @@ struct MasterConfig
 	std::string client_addr;
 	unsigned short client_port;
 	int client_num_threads;
+
+	int dispatch_num_threads;
 };
+
+enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin };
+typedef ::moodycamel::BlockingConcurrentQueue<ScheduleEvent> ScheduleEventQueue;
+
+struct DispatchTask
+{
+	DispatchTask() : dispatch_count(0) { }
+
+	int dispatch_count;
+	std::string target;
+	std::string job_id;
+	std::string task_id;
+	std::string content;
+};
+typedef ::moodycamel::BlockingConcurrentQueue<DispatchTask*> DispatchTaskQueue;
 
 typedef boost::shared_ptr<boost::asio::io_context> IOContextPtr;
 
@@ -68,27 +86,43 @@ public:
 		const std::string& body,
 		http::status& status);
 
-	SqliteDB MasterDB();
+	void NotifyScheduleEvent(ScheduleEvent evt);
+
+public:
+	struct DataState
+	{
+		DataState() : master_db(NULL) { }
+
+		std::mutex db_mutex;
+		sqlite3*   master_db;
+
+		std::mutex queue_mutex;
+		JobList    job_queue;
+
+		std::mutex machine_mutex;
+		MachineMap machines;
+
+		bool InsertNewJob(std::string job_id, std::string name, Job::Type type, const Json::Value& value, std::string& err);
+
+		bool SetTaskState(std::string job_id, std::string task_id, Task::State state, std::string& err);
+	};
+	DataState data_state;
+
+	DataState& GetDataState() { return data_state; }
 
 private:
-	void SetupAPITable();
+	void SetupAPIHandler();
 
-	MasterConfig     config;
+	MasterConfig       config;
 
-	std::mutex       db_mutex;
-	sqlite3*         master_db;
+	IOContextPtr       client_ioctx;
+	ListenerPtr        client_listener;
 
-	IOContextPtr     client_ioctx;
-	ListenerPtr      client_listener;
+	IOContextPtr       slave_ioctx;
+	ListenerPtr        slave_listener;
 
-	IOContextPtr     slave_ioctx;
-	ListenerPtr      slave_listener;
-
-	std::mutex       queue_mutex;
-	JobList          job_queue;
-
-	std::mutex       machine_mutex;
-	MachineMap       machines;
+	ScheduleEventQueue sched_event_queue;
+	DispatchTaskQueue  dispatch_task_queue;
 };
 
 }
