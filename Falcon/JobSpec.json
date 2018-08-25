@@ -1,0 +1,66 @@
+1. Submit new job
+POST /api/v1/jobs
+
+Batch job:
+{
+	"name": "name of new job",
+	"type": "Batch",
+	"envs": "KEY1=VALUE1;KEY2=VALUE2",
+	"labels": "label1=value1;label2=value2",
+	"exec": "d:/myprogm.exe",
+	"tasks": [
+		{
+			"name": "task1",
+			"exec": "d:/myprogm.exe",
+			"args": "",
+			"parallel": 10
+		},
+		{
+			"name": "task2",
+			"args": "d:/test/data.txt",
+			"resources": {
+			    "cpu": 0.3/2400,
+			    "memory": 2048,
+			    "gpu": 1,
+			    "disk": 500
+			}
+		}
+	],
+	"resources": {
+	    "cpu": 0.3/2400,
+		"memory": 2048,
+		"gpu": 1,
+		"disk": 500
+	}
+}
+
+DAG job:
+{
+	"name": "name of new job",
+	"type": "dag",
+	"jobs": [
+		{
+			"name": "group1",
+			"type": "batch",
+			"exec": "d:/myprogm.exe",
+			"tasks": [
+				{
+					"name": "task1",
+					"args": ""
+				}
+			]
+		},
+		{
+			"name": "group2",
+			"type": "batch",
+			"depends": "group1",
+			"exec": "d:/myprogm.exe",
+			"tasks": [
+				{
+					"name": "task2",
+					"args": ""
+				}
+			]
+		}
+	]
+}

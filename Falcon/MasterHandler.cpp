@@ -1,6 +1,7 @@
 #define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
 #include <boost/algorithm/string.hpp>
+#include <boost/filesystem.hpp>
 #include <json/json.h>
 #include "Falcon.h"
 #include "MasterServer.h"
@@ -10,66 +11,14 @@ namespace falcon {
 
 typedef std::map<std::string, std::string> URLParamMap;
 
-struct HandleFunc
+struct Handler
 {
-	virtual ~HandleFunc() { }
+	virtual ~Handler() { }
 	virtual std::string Get(MasterServer* server, std::string target, const URLParamMap& params, http::status& status) { return std::string(); }
 	virtual std::string Post(MasterServer* server, std::string target, const URLParamMap& params, const std::string& body, http::status& status) { return std::string(); }
 };
 
-/*
-1. Submit new job
-POST /api/v1/jobs
-Batch job:
-{
-	"name": "name of new job",
-	"type": "Batch",
-	"exec": "d:/myprogm.exe",
-	"tasks": [
-		{
-			"name": "task1",
-			"exec": "d:/myprogm.exe",
-			"args": "",
-			"parallel": 10
-		},
-		{
-			"name": "task2",
-			"args": "d:/test/data.txt"
-		}
-	]
-}
-DAG job:
-{
-	"name": "name of new job",
-	"type": "dag",
-	"jobs": [
-		{
-			"name": "group1",
-			"type": "batch",
-			"exec": "d:/myprogm.exe",
-			"tasks": [
-				{
-					"name": "task1",
-					"args": ""
-				}
-			]
-		},
-		{
-			"name": "group2",
-			"type": "batch",
-			"depends": "group1",
-			"exec": "d:/myprogm.exe",
-			"tasks": [
-				{
-					"name": "task2",
-					"args": ""
-				}
-			]
-		}
-	]
-}
-*/
-struct JobsFunc : public HandleFunc
+struct JobsHandler : public Handler
 {
 	// get job list
 	virtual std::string Get(MasterServer* server, std::string target, const URLParamMap& params, http::status& status)
@@ -84,16 +33,37 @@ struct JobsFunc : public HandleFunc
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for submitting new job";
 
-		// save attributes of new job into database
 		std::string job_id = Util::UUID(), err;
+		// create private directory for new job
+		std::string job_dir = Util::GetModulePath() + "/jobs/" + job_id;
+		boost::system::error_code ec;
+		if (!boost::filesystem::create_directories(job_dir, ec))
+			return "Failed to create job directory: " + ec.message();
+		std::ofstream ofs(job_dir + "/job_content.json", std::ios_base::out);
+		ofs << body;
+		ofs.close();
+
+		// save attributes of new job into database
+		time_t submit_time = time(NULL);
 		SqliteDB db = server->MasterDB();
 		std::ostringstream oss;
 		oss << "insert into Job(id,name,type,submit_time,state) values('" << job_id << "','" << value["name"].asString() << "','"
-			<< value["type"].asString() << "'," << time(NULL) << ",'" << ToString(Job::State::Queued) << "')";
-		if (!db.Execute(oss.str(), err))
-			return "Failed to write job infomation into database: " + err;
-		// create private directory for new job
+			<< value["type"].asString() << "'," << submit_time << ",'" << ToString(Job::State::Queued) << "')";
+		if (!db.Execute(oss.str(), err)) {
+			boost::filesystem::remove_all(job_dir, ec);
+			boost::filesystem::remove(job_dir, ec);
+			return "Failed to write new job into database: " + err;
+		}
+
 		// create job object and add it to queue
+		JobPtr job;
+		if (FromString<Job::Type>(value["type"].asCString()) == Job::Type::Batch)
+			job.reset(new BatchJob(job_id, value["name"].asString()));
+		else
+			job.reset(new DAGJob(job_id, value["name"].asString()));
+		job->submit_time = submit_time;
+		job->Assign(value);
+
 		// notify scheduler thread by new job event
 		// reply the client with new job id
 		return job_id;
@@ -102,19 +72,19 @@ struct JobsFunc : public HandleFunc
 
 struct MasterAPI
 {
-	HandleFunc* FindHandleFunc(const std::string& target)
+	Handler* FindHandler(const std::string& target)
 	{
-		for (auto& v : handle_funcs) {
+		for (auto& v : handlers) {
 			if (v.first == target)
 				return v.second;
 		}
 		return nullptr;
 	}
-	void RegisterHandleFunc(const std::string& target, HandleFunc* func)
+	void RegisterHandler(const std::string& target, Handler* handler)
 	{
-		handle_funcs.push_back(std::make_pair(target, func));
+		handlers.push_back(std::make_pair(target, handler));
 	}
-	std::list<std::pair<std::string, HandleFunc*>> handle_funcs;
+	std::list<std::pair<std::string, Handler*>> handlers;
 };
 static const int API_MAX_VERSION = 1;
 static MasterAPI* APIVersionTable[API_MAX_VERSION] = { nullptr };
@@ -122,7 +92,7 @@ static MasterAPI* APIVersionTable[API_MAX_VERSION] = { nullptr };
 void MasterServer::SetupAPITable()
 {
 	static MasterAPI v1;
-	v1.RegisterHandleFunc("/jobs", new JobsFunc());
+	v1.RegisterHandler("/jobs", new JobsHandler());
 
 	APIVersionTable[0] = &v1;
 }
@@ -160,12 +130,12 @@ std::string MasterServer::HandleClientRequest(
 	URLParamMap params;
 	std::string api_target = ParseHttpURL(target, offset, params);
 	if (api) {
-		HandleFunc* func = api->FindHandleFunc(api_target);
-		if (func) {
+		Handler* handler = api->FindHandler(api_target);
+		if (handler) {
 			if (verb == http::verb::get)
-				return func->Get(this, api_target, params, status);
+				return handler->Get(this, api_target, params, status);
 			else if (verb == http::verb::post)
-				return func->Post(this, api_target, params, body, status);
+				return handler->Post(this, api_target, params, body, status);
 			else {
 				status = http::status::bad_request;
 				return "Unsupported HTTP-method";

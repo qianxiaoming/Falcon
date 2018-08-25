@@ -6,6 +6,8 @@
 #include <list>
 #include <vector>
 #include <boost/smart_ptr.hpp>
+#include <boost/format.hpp>
+#include "json/json.h"
 
 namespace falcon {
 
@@ -20,6 +22,11 @@ const unsigned short MASTER_CLIENT_PORT = 36781;
 #define RESOURCE_MEM              "mem"
 #define RESOURCE_DISK             "disk"
 
+const float DEFAULT_CPU_USAGE  = 1.0;  // 1 cpu for each task
+const int   DEFAULT_GPU_USAGE  = 0;    // no gpu used for each task
+const int   DEFAULT_MEM_USAGE  = 256;  // 256M memory for each task
+const int   DEFAULT_DISK_USAGE = 200;  // 200M local disk for each task
+
 /**
 * @brief Resource required by tasks
 */
@@ -32,28 +39,33 @@ struct Resource
 		int ival;
 		float fval;
 	} amount;
+
+	Resource(const char* n, Type t, int a);
+	Resource(const char* n, Type t, float a);
 };
 typedef std::map<std::string, Resource> ResourceMap;
+
+struct Job;
 
 /**
 * @brief Task information to be scheduled and executed on machines
 */
-class Task
+struct Task
 {
-public:
 	enum class State { Queued, Scheduling, Dispatching, Executing, Completed, Failed, Aborted, Terminated };
 	struct Status
 	{
+		Status() : state(State::Queued), exit_normal(true), exit_code(0) { }
 		State state;
 		bool  exit_normal;
 		int   exit_code;
 	};
-	virtual ~Task() { }
 
-protected:
-	Task(int id, std::string name) : task_id(id), task_name(name) { }
+	Task(std::string id, std::string name) : task_id(id), task_name(name) { }
 
-	int         task_id;
+	void Assign(const Json::Value& value, const Job& job);
+
+	std::string task_id;
 	Status      task_status;
 	std::string task_name;
 	std::string task_labels;
@@ -63,25 +75,25 @@ protected:
 	ResourceMap resources;
 };
 typedef boost::shared_ptr<Task> TaskPtr;
-typedef std::vector<TaskPtr>    TaskList;
+typedef std::list<TaskPtr>      TaskList;
 
-class Job
+struct Job
 {
-public:
 	enum class Type { Batch, DAG };
 	enum class State { Queued, Waiting, Executing, Halted, Completed, Failed, Terminated };
 
+	Job(std::string id, std::string name, Type type);
+
 	virtual ~Job() { }
 
-protected:
-	Job(std::string id, std::string name, Type type)
-		: job_id(id), job_name(name), job_type(type) { }
+	virtual void Assign(const Json::Value& value);
 
 	std::string job_id;
 	std::string job_name;
 	std::string job_labels;
 	std::string job_envs;
 	Type        job_type;
+	ResourceMap resources;    // default resources for tasks
 	
 	time_t      submit_time;
 	time_t      exec_time;
@@ -93,25 +105,26 @@ typedef std::list<JobPtr>      JobList;
 
 const char* ToString(Job::Type type);
 const char* ToString(Job::State state);
+template <typename T> T FromString(const char* type);
 
-class BatchJob : public Job
+struct BatchJob : public Job
 {
-public:
 	BatchJob(std::string id, std::string name)
 		: Job(id, name, Type::Batch) { }
 
-private:
+	virtual void Assign(const Json::Value& value);
+
 	std::string exec_default;
 	TaskList    exec_tasks;
 };
 
-class DAGJob : public Job
+struct DAGJob : public Job
 {
-public:
 	DAGJob(std::string id, std::string name)
 		: Job(id, name, Type::DAG) { }
 
-private:
+	virtual void Assign(const Json::Value& value);
+
 	JobList exec_jobs;
 
 	typedef std::map<JobPtr, JobList> DAGRelation;
