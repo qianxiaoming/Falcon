@@ -15,9 +15,12 @@ struct MasterConfig
 {
 	MasterConfig();
 
+	std::string cluster_name;
+
 	std::string slave_addr;
 	unsigned short slave_port;
 	int slave_num_threads;
+	int slave_heartbeat;
 
 	std::string client_addr;
 	unsigned short client_port;
@@ -75,18 +78,22 @@ public:
 
 public:
 	std::string HandleClientRequest(
+		const std::string& remote_addr,
 		http::verb verb,
 		const std::string& target,
 		const std::string& body,
 		http::status& status);
 
 	std::string HandleSlaveRequest(
+		const std::string& remote_addr,
 		http::verb verb,
 		const std::string& target,
 		const std::string& body,
 		http::status& status);
 
 	void NotifyScheduleEvent(ScheduleEvent evt);
+
+	MasterConfig& GetConfig() { return config; }
 
 public:
 	struct DataState
@@ -103,7 +110,7 @@ public:
 		MachineMap machines;
 
 		bool InsertNewJob(std::string job_id, std::string name, Job::Type type, const Json::Value& value, std::string& err);
-
+		void RegisterMachine(std::string name, std::string addr, std::string os, const ResourceMap& resources);
 		bool SetTaskState(std::string job_id, std::string task_id, Task::State state, std::string& err);
 	};
 	DataState data_state;

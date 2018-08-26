@@ -1,4 +1,5 @@
 #include "Falcon.h"
+#include "Util.h"
 
 namespace falcon {
 
@@ -76,31 +77,6 @@ Resource::Resource(const char* n, Type t, float a) : type(t)
 	amount.fval = a;
 }
 
-static ResourceMap ParseResources(const Json::Value& value)
-{
-	ResourceMap resmap = { { RESOURCE_CPU,  Resource(RESOURCE_CPU,  Resource::Type::Float, DEFAULT_CPU_USAGE) },
-	                       { RESOURCE_GPU,  Resource(RESOURCE_GPU,  Resource::Type::Int,   DEFAULT_GPU_USAGE) },
-						   { RESOURCE_MEM,  Resource(RESOURCE_MEM,  Resource::Type::Int,   DEFAULT_MEM_USAGE) },
-						   { RESOURCE_DISK, Resource(RESOURCE_DISK, Resource::Type::Int,   DEFAULT_DISK_USAGE) } };
-	std::vector<std::string> names = value.getMemberNames();
-	for (const std::string& n : names) {
-		// update built-in resouces and add custom definitions
-		ResourceMap::iterator it = resmap.find(n);
-		if (it != resmap.end()) {
-			if (it->second.type == Resource::Type::Int)
-				it->second.amount.ival = value[n].asInt();
-			else
-				it->second.amount.fval = value[n].asFloat();
-		} else {
-			if (value[n].isInt())
-				resmap.insert(std::make_pair(n, Resource(n.c_str(), Resource::Type::Int, value[n].asInt())));
-			else
-				resmap.insert(std::make_pair(n, Resource(n.c_str(), Resource::Type::Float, value[n].asFloat())));
-		}
-	}
-	return resmap;
-}
-
 void Task::Assign(const Json::Value& value, const Job& job)
 {
 	if (value.isMember("envs"))
@@ -114,7 +90,7 @@ void Task::Assign(const Json::Value& value, const Job& job)
 		task_labels = job.job_labels;
 
 	if (value.isMember("resources"))
-		resources = ParseResources(value["resources"]);
+		resources = Util::ParseResourcesJson(value["resources"]);
 	else
 		resources = job.resources;
 }
@@ -132,7 +108,7 @@ void Job::Assign(const Json::Value& value)
 	if (value.isMember("labels"))
 		job_labels = value["labels"].asString();
 	if (value.isMember("resources"))
-		resources = ParseResources(value["resources"]);
+		resources = Util::ParseResourcesJson(value["resources"]);
 }
 
 void BatchJob::Assign(const Json::Value& value)

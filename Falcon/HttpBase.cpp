@@ -75,6 +75,7 @@ void Listener::OnAccept(boost::system::error_code ec)
 Session::Session(tcp::socket s, HttpHandler h)
 	: socket(std::move(s)), strand(socket.get_executor()), lambda_func(*this), handler(h)
 {
+	remote_address = socket.remote_endpoint().address().to_string();
 }
 
 void Session::Run()
@@ -100,7 +101,7 @@ void Session::DoRead()
 }
 
 template<typename Body, typename Allocator, typename Send>
-void HandleRequest(http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send, HttpHandler handler)
+void HandleRequest(const std::string& remote, http::request<Body, http::basic_fields<Allocator>>&& req, Send&& send, HttpHandler handler)
 {
 	// Returns a bad request response
 	auto const bad_request = [&req](boost::beast::string_view why)
@@ -149,9 +150,8 @@ void HandleRequest(http::request<Body, http::basic_fields<Allocator>>&& req, Sen
 	http::status status = http::status::ok;
 	std::string response;
 	try {
-		response = handler(req.method(), std::string(req.target()), req.body(), status);
-	}
-	catch (std::exception& ex) {
+		response = handler(remote, req.method(), std::string(req.target()), req.body(), status);
+	} catch (std::exception& ex) {
 		return send(server_error(ex.what()));
 	}
 
@@ -171,7 +171,7 @@ void Session::OnRead(boost::system::error_code ec, std::size_t bytes_transferred
 	if (ec)
 		return DoClose();
 
-	HandleRequest(std::move(request), lambda_func, handler);
+	HandleRequest(remote_address, std::move(request), lambda_func, handler);
 }
 
 void Session::OnWrite(boost::system::error_code ec, std::size_t bytes_transferred, bool close)

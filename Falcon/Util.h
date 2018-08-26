@@ -14,6 +14,8 @@ struct Util
 
 	static bool ParseJsonFromString(const std::string& json, Json::Value& value);
 
+	static ResourceMap ParseResourcesJson(const Json::Value& value);
+
 	static std::string UUID();
 };
 

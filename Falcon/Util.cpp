@@ -5,6 +5,7 @@
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
+#include "Falcon.h"
 #include "Util.h"
 
 namespace falcon {
@@ -29,6 +30,31 @@ bool Util::ParseJsonFromString(const std::string& json, Json::Value& value)
 	if (!Json::parseFromStream(builder, iss, &value, &errs))
 		return false;
 	return true;
+}
+
+ResourceMap Util::ParseResourcesJson(const Json::Value& value)
+{
+	ResourceMap resmap = { { RESOURCE_CPU,  Resource(RESOURCE_CPU,  Resource::Type::Float, DEFAULT_CPU_USAGE) },
+	{ RESOURCE_GPU,  Resource(RESOURCE_GPU,  Resource::Type::Int,   DEFAULT_GPU_USAGE) },
+	{ RESOURCE_MEM,  Resource(RESOURCE_MEM,  Resource::Type::Int,   DEFAULT_MEM_USAGE) },
+	{ RESOURCE_DISK, Resource(RESOURCE_DISK, Resource::Type::Int,   DEFAULT_DISK_USAGE) } };
+	std::vector<std::string> names = value.getMemberNames();
+	for (const std::string& n : names) {
+		ResourceMap::iterator it = resmap.find(n);
+		if (it != resmap.end()) {
+			if (it->second.type == Resource::Type::Int)
+				it->second.amount.ival = value[n].asInt();
+			else
+				it->second.amount.fval = value[n].asFloat();
+		}
+		else {
+			if (value[n].isInt())
+				resmap.insert(std::make_pair(n, Resource(n.c_str(), Resource::Type::Int, value[n].asInt())));
+			else
+				resmap.insert(std::make_pair(n, Resource(n.c_str(), Resource::Type::Float, value[n].asFloat())));
+		}
+	}
+	return std::move(resmap);
 }
 
 std::string Util::UUID()

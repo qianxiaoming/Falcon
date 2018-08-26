@@ -11,7 +11,8 @@
 namespace falcon {
 
 MasterConfig::MasterConfig()
-	: slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3),
+	: cluster_name("Falcon Cluster"),
+	  slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3), slave_heartbeat(5),
 	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2),
 	  dispatch_num_threads(2)
 {
@@ -104,6 +105,10 @@ static bool InitializeMasterDB(std::string db_file)
 bool MasterServer::LoadConfiguration()
 {
 	LOG(INFO) << "Loading master server configuration...";
+	const char* cluster_name = getenv("FALCON_CLUSTER");
+	if (cluster_name)
+		config.cluster_name = cluster_name;
+
 	std::string db_file = Util::GetModulePath() + "/falcon_master.db";
 	if (!boost::filesystem::exists(db_file)) {
 		if (!InitializeMasterDB(db_file))
@@ -138,7 +143,7 @@ bool MasterServer::SetupSlaveHTTP()
 	slave_listener = std::make_shared<Listener>(
 		ioc,
 		tcp::endpoint{ address, config.slave_port },
-		boost::bind(&MasterServer::HandleSlaveRequest, this, _1, _2, _3, _4));
+		boost::bind(&MasterServer::HandleSlaveRequest, this, _1, _2, _3, _4, _5));
 	if (!slave_listener->IsListening()) {
 		slave_listener.reset();
 		return false;
@@ -158,7 +163,7 @@ bool MasterServer::SetupClientHTTP()
 
 	client_listener = std::make_shared<Listener>(ioc,
 		tcp::endpoint{ address, config.client_port },
-		boost::bind(&MasterServer::HandleClientRequest, this, _1, _2, _3, _4));
+		boost::bind(&MasterServer::HandleClientRequest, this, _1, _2, _3, _4, _5));
 	if (!client_listener->IsListening()) {
 		client_listener.reset();
 		return false;
@@ -217,8 +222,9 @@ void MasterServer::Run()
 	// run schedule thread
 	ScheduleEventQueue& sched_queue   = sched_event_queue;
 	DispatchTaskQueue& dispatch_queue = dispatch_task_queue;
-	auto const sched_thread_func = [&notify_thread_exit, &sched_queue, &dispatch_queue](MasterServer* server)
+	auto const sched_thread_func = [&notify_thread_exit, &sched_queue, &dispatch_queue](MasterServer* server, int delay)
 	{
+		std::this_thread::sleep_for(std::chrono::seconds(delay)); // sleep for a while waiting slaves to register
 		int sched_count = 0;
 		while (true) {
 			sched_count++;
@@ -238,7 +244,7 @@ void MasterServer::Run()
 		}
 		notify_thread_exit();
 	};
-	std::thread sched_thread(sched_thread_func, this);
+	std::thread sched_thread(sched_thread_func, this, config.slave_heartbeat*2);
 	sched_thread.detach();
 
 	// run dispatching thread
@@ -313,6 +319,23 @@ bool MasterServer::DataState::InsertNewJob(std::string job_id, std::string name,
 	std::lock_guard<std::mutex> lock(queue_mutex);
 	job_queue.push_back(job);
 	return true;
+}
+
+void MasterServer::DataState::RegisterMachine(std::string name, std::string addr, std::string os, const ResourceMap& resources)
+{
+	std::lock_guard<std::mutex> lock(machine_mutex);
+	if (machines.find(name) != machines.end())
+		LOG(WARNING) << "Machine named '" << name << "' already exists and will be replaced";
+	Machine mac;
+	mac.name = name;
+	mac.ip = addr;
+	mac.os = os;
+	mac.resources = resources;
+	mac.availables = resources;
+	mac.state = Machine::State::Online;
+	mac.online = time(NULL);
+	mac.heartbeat = mac.online;
+	machines[name] = mac;
 }
 
 bool MasterServer::DataState::SetTaskState(std::string job_id, std::string task_id, Task::State state, std::string& err)

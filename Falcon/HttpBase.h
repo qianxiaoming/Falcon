@@ -26,7 +26,8 @@ namespace falcon {
 using tcp = boost::asio::ip::tcp;
 namespace http = boost::beast::http;
 
-typedef boost::function<std::string (http::verb, 
+typedef boost::function<std::string (const std::string&,
+	                                 http::verb, 
 	                                 const std::string&,
 	                                 const std::string&,
 	                                 http::status&)> HttpHandler;
@@ -98,6 +99,7 @@ private:
 	SendLambdaFunc lambda_func;
 
 	tcp::socket socket;
+	std::string remote_address;
 	boost::asio::strand<boost::asio::io_context::executor_type> strand;
 	boost::beast::flat_buffer buffer;
 	http::request<http::string_body> request;

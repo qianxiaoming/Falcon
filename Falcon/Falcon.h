@@ -142,6 +142,7 @@ struct Machine
 
 	TaskList    exec_tasks;
 	ResourceMap availables;
+	time_t      online;
 	time_t      heartbeat;
 };
 typedef std::map<std::string, Machine> MachineMap;

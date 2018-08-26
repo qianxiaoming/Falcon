@@ -14,19 +14,31 @@ typedef std::map<std::string, std::string> URLParamMap;
 struct Handler
 {
 	virtual ~Handler() { }
-	virtual std::string Get(MasterServer* server, std::string target, const URLParamMap& params, http::status& status) { return std::string(); }
-	virtual std::string Post(MasterServer* server, std::string target, const URLParamMap& params, const std::string& body, http::status& status) { return std::string(); }
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
+	{
+		status = http::status::bad_request;
+		return "Illegal request-target";
+	}
+	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{ 
+		status = http::status::bad_request;
+		return "Illegal request-target";
+	}
 };
+
+// handler for "/api/v1/jobs" endpoint
+namespace handler {
+namespace api {
 
 struct JobsHandler : public Handler
 {
 	// get job list
-	virtual std::string Get(MasterServer* server, std::string target, const URLParamMap& params, http::status& status)
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
 	{
 		return "{ \"success\": true, \"jobs\" : [] }";
 	}
 	// create a new job
-	virtual std::string Post(MasterServer* server, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
 	{
 		// convert job content to json value
 		Json::Value value;
@@ -58,6 +70,41 @@ struct JobsHandler : public Handler
 	}
 };
 
+}
+
+namespace cluster {
+
+// handler for "/cluster/slaves" endpoint
+struct SlavesHandler : public Handler
+{
+	// register new slave
+	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		Json::Value value;
+		if (!Util::ParseJsonFromString(body, value))
+			return "Illegal json body for registering slave";
+
+		std::string name = value["name"].asString();
+		LOG(INFO) << "Machine '" << name << "'(" << remote << ") is joining cluster...";
+		if (!value.isMember("resources"))
+			return "No resource specified for registered machine " + remote;
+		ResourceMap resources = Util::ParseResourcesJson(value["resource"]);
+		server->GetDataState().RegisterMachine(name, remote, value["os"].asString(), resources);
+
+		// notify scheduler thread by new slave event
+		server->NotifyScheduleEvent(ScheduleEvent::SlaveJoin);
+		LOG(INFO) << "Machine '" << name << "' registered";
+
+		Json::Value response(Json::objectValue);
+		response["name"] = server->GetConfig().cluster_name;
+		response["heartbeat"] = server->GetConfig().slave_heartbeat;
+		return response.toStyledString();
+	}
+};
+
+}
+}
+
 struct MasterAPI
 {
 	Handler* FindHandler(const std::string& target)
@@ -74,18 +121,21 @@ struct MasterAPI
 	}
 	std::list<std::pair<std::string, Handler*>> handlers;
 };
-static const int API_MAX_VERSION = 1;
-static MasterAPI* APIVersionTable[API_MAX_VERSION] = { nullptr };
+typedef std::map<std::string, MasterAPI*> MasterAPITable;
+static MasterAPITable master_api_table;
 
 void MasterServer::SetupAPIHandler()
 {
 	static MasterAPI v1;
-	v1.RegisterHandler("/jobs", new JobsHandler());
+	v1.RegisterHandler("/jobs", new handler::api::JobsHandler());
+	master_api_table["/api/v1/"] = &v1;
 
-	APIVersionTable[0] = &v1;
+	static MasterAPI cluster;
+	cluster.RegisterHandler("/slaves", new handler::cluster::SlavesHandler());
+	master_api_table["/cluster/"] = &cluster;
 }
 
-static std::string ParseHttpURL(const std::string& target, int offset, URLParamMap& params)
+static std::string ParseHttpURL(const std::string& target, size_t offset, URLParamMap& params)
 {
 	std::size_t pos = target.find('?');
 	if (pos == std::string::npos)
@@ -103,27 +153,32 @@ static std::string ParseHttpURL(const std::string& target, int offset, URLParamM
 	return api_target;
 }
 
-std::string MasterServer::HandleClientRequest(
+static std::string HandleHttpRequest(
+	MasterServer* server,
+	const std::string& remote_addr,
+	std::string prefix,
 	http::verb verb,
 	const std::string& target,
 	const std::string& body,
 	http::status& status)
 {
 	MasterAPI* api = nullptr;
-	int offset = 0;
-	if (boost::istarts_with(target, "/api/v1/")) {
-		api = APIVersionTable[0];
-		offset = sizeof("/api/v1/") - 2;
+	MasterAPITable::iterator it = master_api_table.find(prefix);
+	if (it == master_api_table.end()) {
+		status = http::status::bad_request;
+		return "Illegal request-target";
 	}
+	api = it->second;
+	
 	URLParamMap params;
-	std::string api_target = ParseHttpURL(target, offset, params);
+	std::string api_target = ParseHttpURL(target, prefix.length() - 1, params);
 	if (api) {
 		Handler* handler = api->FindHandler(api_target);
 		if (handler) {
 			if (verb == http::verb::get)
-				return handler->Get(this, api_target, params, status);
+				return handler->Get(server, remote_addr, api_target, params, status);
 			else if (verb == http::verb::post)
-				return handler->Post(this, api_target, params, body, status);
+				return handler->Post(server, remote_addr, api_target, params, body, status);
 			else {
 				status = http::status::bad_request;
 				return "Unsupported HTTP-method";
@@ -134,13 +189,24 @@ std::string MasterServer::HandleClientRequest(
 	return "Illegal request-target";
 }
 
-std::string MasterServer::HandleSlaveRequest(
+std::string MasterServer::HandleClientRequest(
+	const std::string& remote_addr,
 	http::verb verb,
 	const std::string& target,
 	const std::string& body,
 	http::status& status)
 {
-	return std::string();
+	return HandleHttpRequest(this, remote_addr, "/api/v1/", verb, target, body, status);
+}
+
+std::string MasterServer::HandleSlaveRequest(
+	const std::string& remote_addr,
+	http::verb verb,
+	const std::string& target,
+	const std::string& body,
+	http::status& status)
+{
+	return HandleHttpRequest(this, remote_addr, "/cluster/", verb, target, body, status);
 }
 
 }
