@@ -13,6 +13,7 @@ namespace falcon {
 
 const unsigned short MASTER_SLAVE_PORT  = 36780;
 const unsigned short MASTER_CLIENT_PORT = 36781;
+const unsigned short SLAVE_LISTEN_PORT  = 36782;
 
 #define FALCON_MASTER_SERVER_NAME "Falcon-Master"
 #define FALCON_SLAVE_SERVER_NAME  "Falcon-Slave"
@@ -76,6 +77,8 @@ struct Task
 };
 typedef boost::shared_ptr<Task> TaskPtr;
 typedef std::list<TaskPtr>      TaskList;
+
+const char* ToString(Task::State state);
 
 struct Job
 {

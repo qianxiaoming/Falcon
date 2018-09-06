@@ -3,6 +3,29 @@
 
 namespace falcon {
 
+const char* ToString(Task::State state)
+{
+	switch (state) {
+	case Task::State::Queued:
+		return "Queued";
+	case Task::State::Dispatching:
+		return "Dispatching";
+	case Task::State::Executing:
+		return "Executing";
+	case Task::State::Completed:
+		return "Completed";
+	case Task::State::Failed:
+		return "Failed";
+	case Task::State::Aborted:
+		return "Aborted";
+	case Task::State::Terminated:
+		return "Terminated";
+	default:
+		assert(false);
+	}
+	return "";
+}
+
 const char* ToString(Job::Type type)
 {
 	switch (type) {

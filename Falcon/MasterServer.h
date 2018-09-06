@@ -44,8 +44,6 @@ struct DispatchTask
 };
 typedef ::moodycamel::BlockingConcurrentQueue<DispatchTask*> DispatchTaskQueue;
 
-typedef boost::shared_ptr<boost::asio::io_context> IOContextPtr;
-
 class MasterServer : public ServerBase
 {
 public:

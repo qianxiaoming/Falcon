@@ -134,7 +134,7 @@ bool MasterServer::RestoreHistorical()
 
 bool MasterServer::SetupSlaveHTTP()
 {
-	LOG(INFO) << "Setup HTTP service for slaves on port " << config.slave_addr << ":" << config.slave_port << "...";
+	LOG(INFO) << "Setup HTTP service for slaves on " << config.slave_addr << ":" << config.slave_port << "...";
 	auto const address = boost::asio::ip::make_address(config.slave_addr);
 
 	slave_ioctx = boost::make_shared<boost::asio::io_context>(config.slave_num_threads);
@@ -244,7 +244,7 @@ void MasterServer::Run()
 		}
 		notify_thread_exit();
 	};
-	std::thread sched_thread(sched_thread_func, this, config.slave_heartbeat*2);
+	std::thread sched_thread(sched_thread_func, this, config.slave_heartbeat*3);
 	sched_thread.detach();
 
 	// run dispatching thread
@@ -325,7 +325,7 @@ void MasterServer::DataState::RegisterMachine(std::string name, std::string addr
 {
 	std::lock_guard<std::mutex> lock(machine_mutex);
 	if (machines.find(name) != machines.end())
-		LOG(WARNING) << "Machine named '" << name << "' already exists and will be replaced";
+		LOG(WARNING) << "Machine named '" << name << "' already exists and will be replaced.";
 	Machine mac;
 	mac.name = name;
 	mac.ip = addr;

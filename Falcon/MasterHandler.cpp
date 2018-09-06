@@ -9,28 +9,11 @@
 
 namespace falcon {
 
-typedef std::map<std::string, std::string> URLParamMap;
-
-struct Handler
-{
-	virtual ~Handler() { }
-	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
-	{
-		status = http::status::bad_request;
-		return "Illegal request-target";
-	}
-	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
-	{ 
-		status = http::status::bad_request;
-		return "Illegal request-target";
-	}
-};
-
-// handler for "/api/v1/jobs" endpoint
 namespace handler {
 namespace api {
 
-struct JobsHandler : public Handler
+// handler for "/api/v1/jobs" endpoint
+struct JobsHandler : public Handler<MasterServer>
 {
 	// get job list
 	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
@@ -75,7 +58,7 @@ struct JobsHandler : public Handler
 namespace cluster {
 
 // handler for "/cluster/slaves" endpoint
-struct SlavesHandler : public Handler
+struct SlavesHandler : public Handler<MasterServer>
 {
 	// register new slave
 	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
@@ -84,6 +67,7 @@ struct SlavesHandler : public Handler
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for registering slave";
 
+		// register this slave in data state
 		std::string name = value["name"].asString();
 		LOG(INFO) << "Machine '" << name << "'(" << remote << ") is joining cluster...";
 		if (!value.isMember("resources"))
@@ -95,8 +79,9 @@ struct SlavesHandler : public Handler
 		server->NotifyScheduleEvent(ScheduleEvent::SlaveJoin);
 		LOG(INFO) << "Machine '" << name << "' registered";
 
+		// tell this slave the heartbeat interval
 		Json::Value response(Json::objectValue);
-		response["name"] = server->GetConfig().cluster_name;
+		response["cluster"] = server->GetConfig().cluster_name;
 		response["heartbeat"] = server->GetConfig().slave_heartbeat;
 		return response.toStyledString();
 	}
@@ -107,7 +92,7 @@ struct SlavesHandler : public Handler
 
 struct MasterAPI
 {
-	Handler* FindHandler(const std::string& target)
+	Handler<MasterServer>* FindHandler(const std::string& target)
 	{
 		for (auto& v : handlers) {
 			if (v.first == target)
@@ -115,11 +100,11 @@ struct MasterAPI
 		}
 		return nullptr;
 	}
-	void RegisterHandler(const std::string& target, Handler* handler)
+	void RegisterHandler(const std::string& target, Handler<MasterServer>* handler)
 	{
 		handlers.push_back(std::make_pair(target, handler));
 	}
-	std::list<std::pair<std::string, Handler*>> handlers;
+	std::list<std::pair<std::string, Handler<MasterServer>*>> handlers;
 };
 typedef std::map<std::string, MasterAPI*> MasterAPITable;
 static MasterAPITable master_api_table;
@@ -133,24 +118,6 @@ void MasterServer::SetupAPIHandler()
 	static MasterAPI cluster;
 	cluster.RegisterHandler("/slaves", new handler::cluster::SlavesHandler());
 	master_api_table["/cluster/"] = &cluster;
-}
-
-static std::string ParseHttpURL(const std::string& target, size_t offset, URLParamMap& params)
-{
-	std::size_t pos = target.find('?');
-	if (pos == std::string::npos)
-		return target.substr(offset);
-	std::string api_target = target.substr(offset, pos - offset);
-
-	std::vector<std::string> p;
-	boost::split(p, target.substr(pos + 1), boost::is_any_of("&"));
-	for (auto& s : p) {
-		pos = s.find('=');
-		if (pos == std::string::npos)
-			continue;
-		params[s.substr(0, pos)] = s.substr(pos + 1);
-	}
-	return api_target;
 }
 
 static std::string HandleHttpRequest(
@@ -171,9 +138,9 @@ static std::string HandleHttpRequest(
 	api = it->second;
 	
 	URLParamMap params;
-	std::string api_target = ParseHttpURL(target, prefix.length() - 1, params);
+	std::string api_target = HttpUtil::ParseHttpURL(target, prefix.length() - 1, params);
 	if (api) {
-		Handler* handler = api->FindHandler(api_target);
+		Handler<MasterServer>* handler = api->FindHandler(api_target);
 		if (handler) {
 			if (verb == http::verb::get)
 				return handler->Get(server, remote_addr, api_target, params, status);

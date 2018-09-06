@@ -108,6 +108,8 @@ private:
 	HttpHandler handler;
 };
 
+typedef boost::shared_ptr<boost::asio::io_context> IOContextPtr;
+
 }
 
 #endif

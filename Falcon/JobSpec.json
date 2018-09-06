@@ -70,6 +70,7 @@ POST /cluster/slaves
 {
 	"name": "node1",
 	"os": "Windows",
+	"version": "",
 	"resources": {
 	    "cpu": 4096000,
 		"mem": 16000,
