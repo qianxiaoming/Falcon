@@ -55,7 +55,9 @@ private:
 	std::string               slave_name;
 	std::string               os_name;
 	std::string               os_version;
-	ResourceMap               slave_resources;
+	int                       cpu_count;
+	int                       cpu_frequency;
+	ResourceSet               slave_resources;
 
 	std::string               slave_addr;
 	unsigned short            slave_port;

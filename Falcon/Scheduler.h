@@ -10,7 +10,7 @@ class MasterServer;
 class Scheduler
 {
 public:
-	typedef std::list<std::pair<std::string, TaskList>> Table;
+	typedef std::map<std::string, TaskList> Table;
 
 public:
 	Scheduler(MasterServer* server);
@@ -19,6 +19,7 @@ public:
 
 private:
 	MasterServer* master_server;
+	bool log_sched;
 };
 
 }

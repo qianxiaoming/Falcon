@@ -9,7 +9,7 @@
 namespace falcon {
 
 SlaveServer::SlaveServer() 
-	: slave_addr("0.0.0.0"), slave_port(SLAVE_LISTEN_PORT), registered(false),
+	: cpu_count(0), cpu_frequency(0), slave_addr("0.0.0.0"), slave_port(SLAVE_LISTEN_PORT), registered(false),
 	  hb_interval(5), hb_elapsed(0), hb_counter(0)
 {
 }
@@ -33,19 +33,16 @@ bool SlaveServer::RegisterSlave()
 	LOG(INFO) << "Registering in master server " << master_addr << "...";
 	registered = false;
 	Json::Value reg_info(Json::objectValue), res_info(Json::objectValue);
-	reg_info["name"] = slave_name;
-	reg_info["os"] = os_name;
-	reg_info["version"] = os_version;
-	
-	ResourceMap::iterator it = slave_resources.begin();
-	while (it != slave_resources.end()) {
-		if (it->second.type == Resource::Type::Int)
-			res_info[it->first] = it->second.amount.ival;
-		else
-			res_info[it->first] = it->second.amount.fval;
-		it++;
-	}
-	reg_info["resources"] = res_info;
+	reg_info["name"]      = slave_name;
+	reg_info["os"]        = os_name;
+	reg_info["version"]   = os_version;
+
+	Json::Value cpu_info(Json::objectValue);
+	cpu_info["count"]     = cpu_count;
+	cpu_info["frequency"] = cpu_frequency;
+	reg_info["cpu"]       = cpu_info;
+
+	reg_info["resources"] = slave_resources.ToJson();
 
 	int max_try_count = 10, try_count = 0;
 	while (!IsStopped()) {
@@ -70,6 +67,7 @@ bool SlaveServer::RegisterSlave()
 			cluster_name = response["cluster"].asString();
 			hb_interval  = response["heartbeat"].asInt();
 			registered   = true;
+			LOG(INFO) << "Server registered in cluster " << cluster_name << " and heartbeat interval is " << hb_interval << " seconds";
 			return true;
 		}
 	}
@@ -144,19 +142,19 @@ bool SlaveServer::CollectSystemInfo()
 	os_version = "";
 
 	std::string proc_name;
-	int num_cpus = 0, clock_speed = 0;
-	Util::GetCPUInfo(proc_name, num_cpus, clock_speed);
-	if (num_cpus == 0 || clock_speed == 0)
+	Util::GetCPUInfo(proc_name, cpu_count, cpu_frequency);
+	if (cpu_count == 0 || cpu_frequency == 0)
 		return false;
-	slave_resources.insert(std::make_pair(RESOURCE_CPU, Resource(RESOURCE_CPU, Resource::Type::Int, num_cpus*clock_speed)));
-	slave_resources.insert(std::make_pair(RESOURCE_MEM, Resource(RESOURCE_MEM, Resource::Type::Int, Util::GetTotalMemory())));
+	slave_resources.Set(RESOURCE_CPU, float(cpu_count));
+	slave_resources.Set(RESOURCE_FREQ, cpu_count*cpu_frequency);
+	slave_resources.Set(RESOURCE_MEM, Util::GetTotalMemory());
 
 	std::string gpu_name;
 	int num_gpus = 0, gpu_cores = 0;
 	Util::GetGPUInfo(gpu_name, num_gpus, gpu_cores);
-	slave_resources.insert(std::make_pair(RESOURCE_GPU, Resource(RESOURCE_GPU, Resource::Type::Int, num_gpus)));
-	// TODO
-	slave_resources.insert(std::make_pair(RESOURCE_DISK, Resource(RESOURCE_DISK, Resource::Type::Int, 2048)));
+	slave_resources.Set(RESOURCE_GPU, num_gpus);
+	// TODO Get the disk spaces
+	slave_resources.Set(RESOURCE_DISK, 2048);
 	return true;
 }
 

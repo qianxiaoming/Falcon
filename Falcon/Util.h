@@ -15,9 +15,11 @@ struct Util
 
 	static bool ParseJsonFromString(const std::string& json, Json::Value& value);
 
-	static ResourceMap ParseResourcesJson(const Json::Value& value);
+	static ResourceSet ParseResourcesJson(const Json::Value& value);
 
 	static std::string UUID();
+
+	static LabelList ParseLabelList(const std::string& str);
 
 	static void GetCPUInfo(std::string& processor_name, int& num_cpus, int& clock_speed);
 
@@ -68,7 +70,7 @@ struct SqliteDB : public LockGuard
 {
 	SqliteDB(sqlite3* h, std::mutex* m) : LockGuard(m), handle(h) { }
 	operator sqlite3*() { Lock(); return handle; }
-	bool Execute(const std::string& sql, std::string& err);
+	int Execute(const std::string& sql, std::string& err);
 
 	sqlite3* handle;
 };

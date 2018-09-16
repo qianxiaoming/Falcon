@@ -28,9 +28,14 @@ struct JobsHandler : public Handler<MasterServer>
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for submitting new job";
 
-		std::string job_id = Util::UUID(), err;
+		std::string job_id, job_dir, err;
 		// create private directory for new job
-		std::string job_dir = Util::GetModulePath() + "/jobs/" + job_id;
+		while (true) {
+			job_id  = Util::UUID();
+			job_dir = Util::GetModulePath() + "/jobs/" + job_id;
+			if (!boost::filesystem::exists(job_dir))
+				break;
+		}
 		boost::system::error_code ec;
 		if (!boost::filesystem::create_directories(job_dir, ec))
 			return "Failed to create job directory: " + ec.message();
@@ -39,7 +44,7 @@ struct JobsHandler : public Handler<MasterServer>
 		ofs.close();
 
 		// save new job into database
-		if (!server->GetDataState().InsertNewJob(job_id, value["name"].asString(), FromString<Job::Type>(value["type"].asCString()), value, err)) {
+		if (!server->State().InsertNewJob(job_id, value["name"].asString(), FromString<Job::Type>(value["type"].asCString()), value, err)) {
 			boost::filesystem::remove_all(job_dir, ec);
 			boost::filesystem::remove(job_dir, ec);
 			return err;
@@ -70,18 +75,20 @@ struct SlavesHandler : public Handler<MasterServer>
 		// register this slave in data state
 		std::string name = value["name"].asString();
 		LOG(INFO) << "Machine '" << name << "'(" << remote << ") is joining cluster...";
+		int cpu_count = value["cpu"]["count"].asInt();
+		int cpu_freq  = value["cpu"]["frequency"].asInt();
 		if (!value.isMember("resources"))
 			return "No resource specified for registered machine " + remote;
-		ResourceMap resources = Util::ParseResourcesJson(value["resource"]);
-		server->GetDataState().RegisterMachine(name, remote, value["os"].asString(), resources);
+		ResourceSet resources = Util::ParseResourcesJson(value["resource"]);
+		server->State().RegisterMachine(name, remote, value["os"].asString(), cpu_count, cpu_freq, resources);
+		LOG(INFO) << "Machine '" << name << "' registered";
 
 		// notify scheduler thread by new slave event
 		server->NotifyScheduleEvent(ScheduleEvent::SlaveJoin);
-		LOG(INFO) << "Machine '" << name << "' registered";
 
 		// tell this slave the heartbeat interval
 		Json::Value response(Json::objectValue);
-		response["cluster"] = server->GetConfig().cluster_name;
+		response["cluster"]   = server->GetConfig().cluster_name;
 		response["heartbeat"] = server->GetConfig().slave_heartbeat;
 		return response.toStyledString();
 	}

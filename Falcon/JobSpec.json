@@ -7,6 +7,7 @@ Batch job:
 	"type": "Batch",
 	"envs": "KEY1=VALUE1;KEY2=VALUE2",
 	"labels": "label1=value1;label2=value2",
+	"priority": 90,
 	"exec": "d:/myprogm.exe",
 	"tasks": [
 		{
@@ -71,6 +72,10 @@ POST /cluster/slaves
 	"name": "node1",
 	"os": "Windows",
 	"version": "",
+	"cpu": {
+	    "count": 8,
+		"frequency": 3000
+	},
 	"resources": {
 	    "cpu": 4096000,
 		"mem": 16000,

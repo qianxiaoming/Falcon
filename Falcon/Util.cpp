@@ -37,39 +37,48 @@ bool Util::ParseJsonFromString(const std::string& json, Json::Value& value)
 	return true;
 }
 
-ResourceMap Util::ParseResourcesJson(const Json::Value& value)
+ResourceSet Util::ParseResourcesJson(const Json::Value& value)
 {
-	ResourceMap resmap = { { RESOURCE_CPU,  Resource(RESOURCE_CPU,  Resource::Type::Float, DEFAULT_CPU_USAGE) },
-	{ RESOURCE_GPU,  Resource(RESOURCE_GPU,  Resource::Type::Int,   DEFAULT_GPU_USAGE) },
-	{ RESOURCE_MEM,  Resource(RESOURCE_MEM,  Resource::Type::Int,   DEFAULT_MEM_USAGE) },
-	{ RESOURCE_DISK, Resource(RESOURCE_DISK, Resource::Type::Int,   DEFAULT_DISK_USAGE) } };
+	ResourceSet resources;
 	std::vector<std::string> names = value.getMemberNames();
 	for (const std::string& n : names) {
-		ResourceMap::iterator it = resmap.find(n);
-		if (it != resmap.end()) {
-			if (it->second.type == Resource::Type::Int)
-				it->second.amount.ival = value[n].asInt();
-			else
-				it->second.amount.fval = value[n].asFloat();
-		}
-		else {
-			if (value[n].isInt())
-				resmap.insert(std::make_pair(n, Resource(n.c_str(), Resource::Type::Int, value[n].asInt())));
-			else
-				resmap.insert(std::make_pair(n, Resource(n.c_str(), Resource::Type::Float, value[n].asFloat())));
-		}
+		if (value[n].isInt())
+			resources.Set(n.c_str(), value[n].asInt());
+		else
+			resources.Set(n.c_str(), value[n].asFloat());
 	}
-	return std::move(resmap);
+	return resources;
+}
+
+LabelList Util::ParseLabelList(const std::string& str)
+{
+	LabelList labels;
+	std::vector<std::string> label_strs;
+	boost::split(label_strs, str, boost::is_any_of(";"));
+	for (const std::string& v : label_strs) {
+		std::vector<std::string> label;
+		boost::split(label, v, boost::is_any_of("="));
+		labels.insert(std::make_pair(label[0], label[1]));
+	}
+	return labels;
 }
 
 std::string Util::UUID()
 {
+	std::srand((unsigned int)time(NULL));
+	// generate 6 bytes unique string
 	std::ostringstream oss;
-	oss << boost::uuids::random_generator()();
+	for (int i = 0; i < 6; i++) {
+		bool use_char = (std::rand() % 3) < 2;
+		if (use_char)
+			oss << char(std::rand() % 26 + 'a');
+		else
+			oss << char(std::rand() % 10 + '0');
+	}
 	return oss.str();
 }
 
-bool SqliteDB::Execute(const std::string& sql, std::string& err)
+int SqliteDB::Execute(const std::string& sql, std::string& err)
 {
 	std::lock_guard<std::mutex> lock(*mutex);
 	char* errmsg = NULL;
@@ -78,7 +87,7 @@ bool SqliteDB::Execute(const std::string& sql, std::string& err)
 		err = errmsg;
 		sqlite3_free(errmsg);
 	}
-	return r == SQLITE_OK;
+	return r;
 }
 
 void Util::GetCPUInfo(std::string& processor_name, int& num_cpus, int& clock_speed)

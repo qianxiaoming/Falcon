@@ -19,32 +19,68 @@ const unsigned short SLAVE_LISTEN_PORT  = 36782;
 #define FALCON_SLAVE_SERVER_NAME  "Falcon-Slave"
 
 #define RESOURCE_CPU              "cpu"
+#define RESOURCE_FREQ             "freq"
 #define RESOURCE_GPU              "gpu"
 #define RESOURCE_MEM              "mem"
 #define RESOURCE_DISK             "disk"
 
 const float DEFAULT_CPU_USAGE  = 1.0;  // 1 cpu for each task
+const int   DEFAULT_FREQ_USAGE = 2400; // 2.4GHz for each task
 const int   DEFAULT_GPU_USAGE  = 0;    // no gpu used for each task
 const int   DEFAULT_MEM_USAGE  = 256;  // 256M memory for each task
 const int   DEFAULT_DISK_USAGE = 200;  // 200M local disk for each task
 
 /**
-* @brief Resource required by tasks
+* @brief Resources required by tasks or owned by machines
 */
-struct Resource
+struct ResourceSet
 {
-	enum class Type {Int, Float};
-	char   name[16];
-	Type   type;
-	union {
-		int ival;
-		float fval;
-	} amount;
+	enum class ValueType {Int, Float};
+	struct Value
+	{
+		ValueType type;
+		union {
+			int ival;
+			float fval;
+		} value;
 
-	Resource(const char* n, Type t, int a);
-	Resource(const char* n, Type t, float a);
+		Value() : type(ValueType::Int) { value.ival = 0; }
+		Value(int v) : type(ValueType::Int) { value.ival = v; }
+		Value(float v) : type(ValueType::Float) { value.fval = v; }
+	};
+
+	ResourceSet();
+
+	bool Exists(const std::string& name) const;
+	bool Exists(const char* name) const;
+
+	ResourceSet& Set(const std::string& name, int val);
+	ResourceSet& Set(const std::string& name, float val);
+
+	int Get(const std::string& name, int val) const;
+	float Get(const std::string& name, float val) const;
+
+	ResourceSet& operator+=(const ResourceSet& other);
+	ResourceSet& operator-=(const ResourceSet& other);
+	
+	typedef std::map<std::string, float> Proportion;
+	Proportion operator/(const ResourceSet& other) const;
+
+	ResourceSet& Increase(const std::string& name, int val);
+	ResourceSet& Increase(const std::string& name, float val);
+	ResourceSet& Decrease(const std::string& name, int val);
+	ResourceSet& Decrease(const std::string& name, float val);
+
+	Json::Value ToJson() const;
+
+	bool IsSatisfiable(const ResourceSet& other) const;
+	
+	typedef std::map<std::string, Value>::iterator iterator;
+	typedef std::map<std::string, Value>::const_iterator const_iterator;
+	std::map<std::string, Value> items;
 };
-typedef std::map<std::string, Resource> ResourceMap;
+
+typedef std::map<std::string, std::string> LabelList;
 
 struct Job;
 
@@ -56,24 +92,27 @@ struct Task
 	enum class State { Queued, Dispatching, Executing, Completed, Failed, Aborted, Terminated };
 	struct Status
 	{
-		Status() : state(State::Queued), exit_normal(true), exit_code(0) { }
+		Status() : state(State::Queued), exit_abort(false), exit_code(0) { }
 		State state;
-		bool  exit_normal;
+		bool  exit_abort;
 		int   exit_code;
 	};
 
-	Task(std::string id, std::string name) : task_id(id), task_name(name) { }
+	Task(const std::string& job_id, const std::string& task_id, std::string name);
 
 	void Assign(const Json::Value& value, const Job& job);
 
+	Json::Value ToJson() const;
+
+	std::string job_id;
 	std::string task_id;
 	Status      task_status;
 	std::string task_name;
-	std::string task_labels;
 	std::string exec_command;
 	std::string exec_args;
 	std::string exec_envs;
-	ResourceMap resources;
+	LabelList   task_labels;
+	ResourceSet resources;
 };
 typedef boost::shared_ptr<Task> TaskPtr;
 typedef std::list<TaskPtr>      TaskList;
@@ -90,13 +129,16 @@ struct Job
 	virtual ~Job() { }
 
 	virtual void Assign(const Json::Value& value);
+	virtual TaskPtr GetTask(const std::string& id) const = 0;
+	virtual bool NextTask(TaskList::iterator& it) = 0;
 
 	std::string job_id;
 	std::string job_name;
-	std::string job_labels;
 	std::string job_envs;
+	LabelList   job_labels;
 	Type        job_type;
-	ResourceMap resources;    // default resources for tasks
+	int         job_priority;
+	ResourceSet resources;    // default resources for tasks
 	
 	time_t      submit_time;
 	time_t      exec_time;
@@ -116,6 +158,8 @@ struct BatchJob : public Job
 		: Job(id, name, Type::Batch) { }
 
 	virtual void Assign(const Json::Value& value);
+	virtual TaskPtr GetTask(const std::string& id) const;
+	virtual bool NextTask(TaskList::iterator& it);
 
 	std::string exec_default;
 	TaskList    exec_tasks;
@@ -127,6 +171,8 @@ struct DAGJob : public Job
 		: Job(id, name, Type::DAG) { }
 
 	virtual void Assign(const Json::Value& value);
+	virtual TaskPtr GetTask(const std::string& id) const;
+	virtual bool NextTask(TaskList::iterator& it);
 
 	JobList exec_jobs;
 
@@ -140,11 +186,14 @@ struct Machine
 	std::string name;
 	std::string ip;
 	std::string os;
+	int         cpu_count;
+	int         cpu_frequency;
 	State       state;
-	ResourceMap resources;
+	LabelList   labels;
+	ResourceSet resources;
 
 	TaskList    exec_tasks;
-	ResourceMap availables;
+	ResourceSet availables;
 	time_t      online;
 	time_t      heartbeat;
 };

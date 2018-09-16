@@ -78,6 +78,10 @@ Session::Session(tcp::socket s, HttpHandler h)
 	remote_address = socket.remote_endpoint().address().to_string();
 }
 
+Session::~Session()
+{
+}
+
 void Session::Run()
 {
 	DoRead();

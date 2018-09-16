@@ -34,8 +34,8 @@ typedef ::moodycamel::BlockingConcurrentQueue<ScheduleEvent> ScheduleEventQueue;
 
 struct DispatchTask
 {
-	DispatchTask() : dispatch_count(0) { }
-
+	DispatchTask(const std::string& target, const std::string& job_id, const std::string& task_id)
+		: dispatch_count(0), target(target), job_id(job_id), task_id(task_id) { }
 	int dispatch_count;
 	std::string target;
 	std::string job_id;
@@ -107,13 +107,14 @@ public:
 		std::mutex machine_mutex;
 		MachineMap machines;
 
-		bool InsertNewJob(std::string job_id, std::string name, Job::Type type, const Json::Value& value, std::string& err);
-		void RegisterMachine(std::string name, std::string addr, std::string os, const ResourceMap& resources);
-		bool SetTaskState(std::string job_id, std::string task_id, Task::State state, std::string& err);
+		JobPtr GetJob(const std::string& job_id) const;
+		bool InsertNewJob(const std::string& job_id, const std::string& name, Job::Type type, const Json::Value& value, std::string& err);
+		void RegisterMachine(const std::string& name, const std::string& addr, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
+		bool SetTaskState(const std::string& job_id, const std::string& task_id, Task::State state, std::string& err);
 	};
 	DataState data_state;
 
-	DataState& GetDataState() { return data_state; }
+	DataState& State() { return data_state; }
 
 private:
 	void SetupAPIHandler();

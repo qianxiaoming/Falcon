@@ -60,6 +60,8 @@ class Session : public std::enable_shared_from_this<Session>
 public:
 	explicit Session(tcp::socket socket, HttpHandler handler);
 
+	~Session();
+
 	void Run();
 
 	void DoRead();
