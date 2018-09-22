@@ -90,19 +90,19 @@ Scheduler::Table Scheduler::ScheduleTasks()
 				if (log_sched)
 					LOG(INFO) << "No suitable machine found to execute task "<<sched_job->job_id<<"."<<task->task_id;
 			} else {
-				struct Capacity
+				struct PrioritySource
 				{
 					Machine* mac;
 					ResourceSet::Proportion props;
 				};
-				std::vector<Capacity> mac_caps(available_macs.size());
+				std::vector<PrioritySource> mac_caps(available_macs.size());
 				// calculate some metrics for later sort
 				for (size_t i = 0; i < mac_caps.size(); i++) {
 					mac_caps[i].mac = available_macs[i];
 					mac_caps[i].props = available_macs[i]->availables / available_macs[i]->resources;
 				}
 				
-				std::sort(mac_caps.begin(), mac_caps.end(), [&task](const Capacity& l, const Capacity& r) {
+				std::sort(mac_caps.begin(), mac_caps.end(), [&task](const PrioritySource& l, const PrioritySource& r) {
 					if (task->resources.Get(RESOURCE_GPU, 0) != 0) {
 						if (l.props.find(RESOURCE_GPU)->second > r.props.find(RESOURCE_GPU)->second) return true;
 						if (l.props.find(RESOURCE_GPU)->second < r.props.find(RESOURCE_GPU)->second) return false;

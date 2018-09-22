@@ -69,7 +69,7 @@ std::string Util::UUID()
 	// generate 6 bytes unique string
 	std::ostringstream oss;
 	for (int i = 0; i < 6; i++) {
-		bool use_char = (std::rand() % 3) < 2;
+		bool use_char = (std::rand() % 300) < 200;
 		if (use_char)
 			oss << char(std::rand() % 26 + 'a');
 		else

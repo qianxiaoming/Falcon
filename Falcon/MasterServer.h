@@ -40,9 +40,19 @@ struct DispatchTask
 	std::string target;
 	std::string job_id;
 	std::string task_id;
-	std::string content;
+	Json::Value content;
 };
-typedef ::moodycamel::BlockingConcurrentQueue<DispatchTask*> DispatchTaskQueue;
+
+struct DispatchTaskQueue
+{
+	void Dequeue(DispatchTask*& task) { tasks.wait_dequeue(task); }
+	void Enqueue(DispatchTask* task) { tasks.enqueue(task); }
+	void Notify() { done.enqueue(0); }
+	void Wait() { char t; done.wait_dequeue(t); }
+
+	::moodycamel::BlockingConcurrentQueue<DispatchTask*> tasks;
+	::moodycamel::BlockingConcurrentQueue<char> done;
+};
 
 class MasterServer : public ServerBase
 {
@@ -107,10 +117,13 @@ public:
 		std::mutex machine_mutex;
 		MachineMap machines;
 
+		std::mutex prog_mutex;
+		Json::Value progress;
+
 		JobPtr GetJob(const std::string& job_id) const;
 		bool InsertNewJob(const std::string& job_id, const std::string& name, Job::Type type, const Json::Value& value, std::string& err);
 		void RegisterMachine(const std::string& name, const std::string& addr, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
-		bool SetTaskState(const std::string& job_id, const std::string& task_id, Task::State state, std::string& err);
+		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status);
 	};
 	DataState data_state;
 

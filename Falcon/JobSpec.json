@@ -87,3 +87,16 @@ POST /cluster/slaves
     "cluster": "my cluster",
 	"heartbeat": 5
 }
+
+3. Dispatch task to slave
+POST /tasks
+{
+	"job_id": "xjv5t7",
+	"task_id": "3",
+	"content": {
+		all information of a task
+	}
+}
+{
+	"state": "Executing"
+}

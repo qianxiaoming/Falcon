@@ -88,6 +88,26 @@ Job::State FromString(const char* state)
 	return Job::State::Terminated;
 }
 
+template <>
+Task::State FromString(const char* state)
+{
+	if (strcmp(state, "Queued") == 0)
+		return Task::State::Queued;
+	if (strcmp(state, "Dispatching") == 0)
+		return Task::State::Dispatching;
+	if (strcmp(state, "Executing") == 0)
+		return Task::State::Executing;
+	if (strcmp(state, "Completed") == 0)
+		return Task::State::Completed;
+	if (strcmp(state, "Failed") == 0)
+		return Task::State::Failed;
+	if (strcmp(state, "Aborted") == 0)
+		return Task::State::Aborted;
+	if (strcmp(state, "Terminated") == 0)
+		return Task::State::Terminated;
+	return Task::State::Queued;
+}
+
 ResourceSet::ResourceSet()
 {
 	items.swap(std::map<std::string, Value>(

@@ -92,10 +92,15 @@ struct Task
 	enum class State { Queued, Dispatching, Executing, Completed, Failed, Aborted, Terminated };
 	struct Status
 	{
-		Status() : state(State::Queued), exit_abort(false), exit_code(0) { }
-		State state;
-		bool  exit_abort;
-		int   exit_code;
+		Status() : state(State::Queued), exit_code(0), exec_time(0), finish_time(0) { }
+		Status(State s) : state(s), exit_code(0), exec_time(0), finish_time(0) { }
+		Status(State s, time_t exec_time, std::string mac) : state(s), exit_code(0), exec_time(exec_time), finish_time(0), machine(mac) { }
+		Status(State s, time_t finish_time, int code) : state(s), exit_code(code), exec_time(0), finish_time(finish_time) { }
+		State       state;
+		int         exit_code;
+		time_t      exec_time;
+		time_t      finish_time;
+		std::string machine;
 	};
 
 	Task(const std::string& job_id, const std::string& task_id, std::string name);
@@ -106,13 +111,14 @@ struct Task
 
 	std::string job_id;
 	std::string task_id;
-	Status      task_status;
 	std::string task_name;
 	std::string exec_command;
 	std::string exec_args;
 	std::string exec_envs;
 	LabelList   task_labels;
 	ResourceSet resources;
+
+	Status      task_status;
 };
 typedef boost::shared_ptr<Task> TaskPtr;
 typedef std::list<TaskPtr>      TaskList;
