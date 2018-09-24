@@ -35,6 +35,8 @@ public:
 
 	bool SetupListenHTTP();
 
+	std::string GetHostName() const { return slave_name; }
+
 	std::string HandleMasterRequest(
 		const std::string& remote_addr,
 		http::verb verb,

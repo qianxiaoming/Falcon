@@ -7,6 +7,7 @@
 #include <vector>
 #include <boost/smart_ptr.hpp>
 #include <boost/format.hpp>
+#include <boost/function.hpp>
 #include "json/json.h"
 
 namespace falcon {
@@ -72,6 +73,7 @@ struct ResourceSet
 	ResourceSet& Decrease(const std::string& name, float val);
 
 	Json::Value ToJson() const;
+	std::string ToString() const;
 
 	bool IsSatisfiable(const ResourceSet& other) const;
 	
@@ -92,12 +94,11 @@ struct Task
 	enum class State { Queued, Dispatching, Executing, Completed, Failed, Aborted, Terminated };
 	struct Status
 	{
-		Status() : state(State::Queued), exit_code(0), exec_time(0), finish_time(0) { }
-		Status(State s) : state(s), exit_code(0), exec_time(0), finish_time(0) { }
-		Status(State s, time_t exec_time, std::string mac) : state(s), exit_code(0), exec_time(exec_time), finish_time(0), machine(mac) { }
-		Status(State s, time_t finish_time, int code) : state(s), exit_code(code), exec_time(0), finish_time(finish_time) { }
+		Status();
+		Status(State s);
 		State       state;
 		int         exit_code;
+		std::string errmsg;
 		time_t      exec_time;
 		time_t      finish_time;
 		std::string machine;
@@ -122,8 +123,7 @@ struct Task
 };
 typedef boost::shared_ptr<Task> TaskPtr;
 typedef std::list<TaskPtr>      TaskList;
-
-const char* ToString(Task::State state);
+typedef boost::function<bool(const TaskPtr&)> TaskStatePred;
 
 struct Job
 {
@@ -136,7 +136,8 @@ struct Job
 
 	virtual void Assign(const Json::Value& value);
 	virtual TaskPtr GetTask(const std::string& id) const = 0;
-	virtual bool NextTask(TaskList::iterator& it) = 0;
+	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const = 0;
+	virtual Job::State UpdateCurrentState() = 0;
 
 	std::string job_id;
 	std::string job_name;
@@ -154,10 +155,6 @@ struct Job
 typedef boost::shared_ptr<Job> JobPtr;
 typedef std::list<JobPtr>      JobList;
 
-const char* ToString(Job::Type type);
-const char* ToString(Job::State state);
-template <typename T> T FromString(const char* type);
-
 struct BatchJob : public Job
 {
 	BatchJob(std::string id, std::string name)
@@ -165,7 +162,8 @@ struct BatchJob : public Job
 
 	virtual void Assign(const Json::Value& value);
 	virtual TaskPtr GetTask(const std::string& id) const;
-	virtual bool NextTask(TaskList::iterator& it);
+	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const;
+	virtual Job::State UpdateCurrentState();
 
 	std::string exec_default;
 	TaskList    exec_tasks;
@@ -178,7 +176,8 @@ struct DAGJob : public Job
 
 	virtual void Assign(const Json::Value& value);
 	virtual TaskPtr GetTask(const std::string& id) const;
-	virtual bool NextTask(TaskList::iterator& it);
+	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const;
+	virtual Job::State UpdateCurrentState();
 
 	JobList exec_jobs;
 
@@ -203,7 +202,13 @@ struct Machine
 	time_t      online;
 	time_t      heartbeat;
 };
-typedef std::map<std::string, Machine> MachineMap;
+typedef boost::shared_ptr<Machine> MachinePtr;
+typedef std::map<std::string, MachinePtr> MachineMap;
+
+const char* ToString(Job::Type type);
+const char* ToString(Job::State state);
+const char* ToString(Task::State state);
+template <typename T> T FromString(const char* type);
 
 }
 

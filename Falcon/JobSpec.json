@@ -97,6 +97,20 @@ POST /tasks
 		all information of a task
 	}
 }
+Response maybe
 {
-	"state": "Executing"
+	"error": "the error message for http post operation"
+}
+or
+{
+	"state": "Executing",
+	"time": 1837234,
+	"machine": "node1"
+}
+or
+{
+	"state": "Aborted",
+	"message": "the error message for task abort",
+	"time": 1837234,
+	"machine": "node1"
 }

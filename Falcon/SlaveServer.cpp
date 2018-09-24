@@ -254,19 +254,12 @@ struct TasksHandler : public Handler<SlaveServer>
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for registering slave";
 
-		//std::string name = value["name"].asString();
-		//LOG(INFO) << "Machine '" << name << "'(" << remote << ") is joining cluster...";
-		//if (!value.isMember("resources"))
-		//	return "No resource specified for registered machine " + remote;
-		//ResourceMap resources = Util::ParseResourcesJson(value["resource"]);
-		//server->GetDataState().RegisterMachine(name, remote, value["os"].asString(), resources);
-
-		//// notify scheduler thread by new slave event
-		//server->NotifyScheduleEvent(ScheduleEvent::SlaveJoin);
-		//LOG(INFO) << "Machine '" << name << "' registered";
+		LOG(INFO) << "New task(" << value["job_id"].asString() << "." << value["task_id"].asString() << ") received from master " << remote;
 
 		Json::Value response(Json::objectValue);
-		response["status"] = ToString(Task::State::Executing);
+		response["state"] = ToString(Task::State::Executing);
+		response["time"] = time(NULL);
+		response["machine"] = server->GetHostName();
 		return response.toStyledString();
 	}
 };

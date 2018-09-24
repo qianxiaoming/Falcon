@@ -209,10 +209,17 @@ ResourceSet::Proportion ResourceSet::operator/(const ResourceSet& other) const
 	for (auto& item : other.items) {
 		auto it = items.find(item.first);
 		if (it != items.end()) {
-			if (it->second.type == ResourceSet::ValueType::Int)
-				props.insert(std::make_pair(it->first, float(it->second.value.ival) / item.second.value.ival));
-			else
-				props.insert(std::make_pair(it->first, it->second.value.fval / item.second.value.fval));
+			if (it->second.type == ResourceSet::ValueType::Int) {
+				if (item.second.value.ival == 0)
+					props.insert(std::make_pair(it->first, 0.0f));
+				else
+					props.insert(std::make_pair(it->first, float(it->second.value.ival) / item.second.value.ival));
+			} else {
+				if (item.second.value.fval == 0.0f)
+					props.insert(std::make_pair(it->first, 0.0f));
+				else
+					props.insert(std::make_pair(it->first, it->second.value.fval / item.second.value.fval));
+			}
 		}
 	}
 	return props;
@@ -280,6 +287,21 @@ Json::Value ResourceSet::ToJson() const
 	return val;
 }
 
+std::string ResourceSet::ToString() const
+{
+	std::ostringstream oss;
+	ResourceSet::const_iterator it = items.begin();
+	while (it != items.end()) {
+		oss << it->first << "=";
+		if (it->second.type == ResourceSet::ValueType::Int)
+			oss << it->second.value.ival << ";";
+		else
+			oss << it->second.value.fval << ";";
+		it++;
+	}
+	return oss.str();
+}
+
 bool ResourceSet::IsSatisfiable(const ResourceSet& other) const
 {
 	for (const auto& v : other.items) {
@@ -293,6 +315,16 @@ bool ResourceSet::IsSatisfiable(const ResourceSet& other) const
 	return true;
 }
 
+Task::Status::Status()
+	: state(State::Queued), exit_code(0), exec_time(0), finish_time(0)
+{
+}
+
+Task::Status::Status(State s)
+	: state(s), exit_code(0), exec_time(0), finish_time(0)
+{
+}
+
 Task::Task(const std::string& job_id, const std::string& task_id, std::string name)
 	: job_id(job_id), task_id(task_id), task_name(name)
 {
@@ -300,6 +332,9 @@ Task::Task(const std::string& job_id, const std::string& task_id, std::string na
 
 void Task::Assign(const Json::Value& value, const Job& job)
 {
+	if (value.isMember("args"))
+		exec_args = value["args"].asString();
+
 	if (value.isMember("envs"))
 		exec_envs = value["envs"].asString();
 	else
@@ -379,13 +414,37 @@ TaskPtr BatchJob::GetTask(const std::string& id) const
 	return *it;
 }
 
-bool BatchJob::NextTask(TaskList::iterator& it)
+void BatchJob::GetTaskList(TaskList& tasks, TaskStatePred pred) const
 {
-	if (it == TaskList::iterator())
-		it = exec_tasks.begin();
+	tasks.clear();
+	if (pred.empty())
+		tasks.assign(exec_tasks.begin(), exec_tasks.end());
 	else
-		it++;
-	return it != exec_tasks.end();
+		std::copy_if(exec_tasks.begin(), exec_tasks.end(), std::back_inserter(tasks), pred);
+}
+
+Job::State BatchJob::UpdateCurrentState()
+{
+	int num_abort = 0, num_failed = 0, num_completed = 0, num_terminated = 0;
+	for (TaskPtr t : exec_tasks) {
+		Task::State task_state = t->task_status.state;
+		if (task_state == Task::State::Executing) {
+			job_state = Job::State::Executing;
+			return job_state;
+		}
+		else if (task_state == Task::State::Completed)
+			num_completed++;
+		else if (task_state == Task::State::Failed)
+			num_failed++;
+		else if (task_state == Task::State::Aborted)
+			num_abort++;
+		else if (task_state == Task::State::Terminated)
+			num_terminated++;
+	}
+	if (num_abort > 0 || num_failed > 0) job_state = Job::State::Failed;
+	if (num_terminated > 0) job_state = Job::State::Terminated;
+	if (num_completed == int(exec_tasks.size())) job_state = Job::State::Completed;
+	return job_state;
 }
 
 void DAGJob::Assign(const Json::Value& value)
@@ -398,9 +457,13 @@ TaskPtr DAGJob::GetTask(const std::string& id) const
 	return TaskPtr();
 }
 
-bool DAGJob::NextTask(TaskList::iterator& it)
+void DAGJob::GetTaskList(TaskList& tasks, TaskStatePred pred) const
 {
-	return false;
+}
+
+Job::State DAGJob::UpdateCurrentState()
+{
+	return Job::State::Queued;
 }
 
 }

@@ -26,7 +26,10 @@ struct MasterConfig
 	unsigned short client_port;
 	int client_num_threads;
 
+	unsigned short slave_listen_port;
+
 	int dispatch_num_threads;
+	int dispatch_try_times;
 };
 
 enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin };
@@ -47,11 +50,11 @@ struct DispatchTaskQueue
 {
 	void Dequeue(DispatchTask*& task) { tasks.wait_dequeue(task); }
 	void Enqueue(DispatchTask* task) { tasks.enqueue(task); }
-	void Notify() { done.enqueue(0); }
-	void Wait() { char t; done.wait_dequeue(t); }
+	void Notify(int undispatched) { done.enqueue(undispatched); }
+	int  Wait() { int v; done.wait_dequeue(v); return v; }
 
 	::moodycamel::BlockingConcurrentQueue<DispatchTask*> tasks;
-	::moodycamel::BlockingConcurrentQueue<char> done;
+	::moodycamel::BlockingConcurrentQueue<int> done;
 };
 
 class MasterServer : public ServerBase
@@ -121,9 +124,11 @@ public:
 		Json::Value progress;
 
 		JobPtr GetJob(const std::string& job_id) const;
+		MachinePtr GetMachine(const std::string& ip) const;
 		bool InsertNewJob(const std::string& job_id, const std::string& name, Job::Type type, const Json::Value& value, std::string& err);
 		void RegisterMachine(const std::string& name, const std::string& addr, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
 		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status);
+		void AddExecutingTask(const std::string& ip, const std::string& job_id, const std::string& task_id);
 	};
 	DataState data_state;
 

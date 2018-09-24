@@ -79,7 +79,7 @@ struct SlavesHandler : public Handler<MasterServer>
 		int cpu_freq  = value["cpu"]["frequency"].asInt();
 		if (!value.isMember("resources"))
 			return "No resource specified for registered machine " + remote;
-		ResourceSet resources = Util::ParseResourcesJson(value["resource"]);
+		ResourceSet resources = Util::ParseResourcesJson(value["resources"]);
 		server->State().RegisterMachine(name, remote, value["os"].asString(), cpu_count, cpu_freq, resources);
 		LOG(INFO) << "Machine '" << name << "' registered";
 

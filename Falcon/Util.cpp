@@ -52,10 +52,15 @@ ResourceSet Util::ParseResourcesJson(const Json::Value& value)
 
 LabelList Util::ParseLabelList(const std::string& str)
 {
+	if (str.empty())
+		return LabelList();
+
 	LabelList labels;
 	std::vector<std::string> label_strs;
 	boost::split(label_strs, str, boost::is_any_of(";"));
 	for (const std::string& v : label_strs) {
+		if (v.empty())
+			continue;
 		std::vector<std::string> label;
 		boost::split(label, v, boost::is_any_of("="));
 		labels.insert(std::make_pair(label[0], label[1]));

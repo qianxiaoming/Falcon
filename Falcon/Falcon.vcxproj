@@ -151,6 +151,7 @@
   <ItemGroup>
     <ClCompile Include="Falcon.cpp" />
     <ClCompile Include="HttpBase.cpp" />
+    <ClCompile Include="MasterDataState.cpp" />
     <ClCompile Include="MasterHandler.cpp" />
     <ClCompile Include="MasterServer.cpp" />
     <ClCompile Include="Scheduler.cpp" />
