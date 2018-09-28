@@ -55,6 +55,7 @@ void WINAPI ServiceHandler(DWORD fdwControl)
 void WINAPI ServiceMain(int argc, char** argv)
 {
 	FLAGS_log_dir = falcon::Util::GetModulePath();
+	FLAGS_logbuflevel = -1;
 	google::InitGoogleLogging(server_base->GetName());
 
 	ServiceStatus.dwServiceType = SERVICE_WIN32;

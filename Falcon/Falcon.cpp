@@ -330,25 +330,36 @@ Task::Task(const std::string& job_id, const std::string& task_id, std::string na
 {
 }
 
-void Task::Assign(const Json::Value& value, const Job& job)
+void Task::Assign(const Json::Value& value, const Job* job)
 {
 	if (value.isMember("args"))
 		exec_args = value["args"].asString();
 
+	if (value.isMember("exec"))
+		exec_command = value["exec"].asString();
+
+	if (value.isMember("args"))
+		exec_args = value["args"].asString();
+
+	if (value.isMember("workdir"))
+		work_dir = value["workdir"].asString();
+	else if (job)
+		work_dir = job->work_dir;
+
 	if (value.isMember("envs"))
 		exec_envs = value["envs"].asString();
-	else
-		exec_envs = job.job_envs;
+	else if (job)
+		exec_envs = job->job_envs;
 
 	if (value.isMember("labels"))
 		task_labels = Util::ParseLabelList(value["labels"].asString());
-	else
-		task_labels = job.job_labels;
+	else if (job)
+		task_labels = job->job_labels;
 
 	if (value.isMember("resources"))
 		resources = Util::ParseResourcesJson(value["resources"]);
-	else
-		resources = job.resources;
+	else if (job)
+		resources = job->resources;
 }
 
 Json::Value Task::ToJson() const
@@ -364,6 +375,8 @@ Job::Job(std::string id, std::string name, Type type)
 
 void Job::Assign(const Json::Value& value)
 {
+	if (value.isMember("workdir"))
+		work_dir = value["workdir"].asString();
 	if (value.isMember("envs"))
 		job_envs = value["envs"].asString();
 	if (value.isMember("labels"))
@@ -390,14 +403,14 @@ void BatchJob::Assign(const Json::Value& value)
 			for (int p = 0; p < count; p++) {
 				std::string id = boost::str(boost::format("%d.%d") % (i + 1) % (p + 1));
 				TaskPtr task(new Task(job_id, id, v["name"].asString()));
-				task->Assign(v, *this);
+				task->Assign(v, this);
 				if (task->exec_command.empty())
 					task->exec_command = exec_default;
 				exec_tasks.push_back(task);
 			}
 		} else {
 			TaskPtr task(new Task(job_id, std::to_string(i), v["name"].asString()));
-			task->Assign(v, *this);
+			task->Assign(v, this);
 			if (task->exec_command.empty())
 				task->exec_command = exec_default;
 			exec_tasks.push_back(task);

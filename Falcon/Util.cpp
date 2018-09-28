@@ -1,7 +1,8 @@
+#include <sstream>
 #define WIN32_LEAN_AND_MEAN 
 #include <Windows.h>
 #include <atlbase.h>
-#include <sstream>
+#include <strsafe.h>
 #define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
 #include <curl/curl.h>
@@ -81,6 +82,24 @@ std::string Util::UUID()
 			oss << char(std::rand() % 10 + '0');
 	}
 	return oss.str();
+}
+
+std::string Util::GetLastErrorMessage()
+{
+	DWORD dw = GetLastError();
+	LPVOID lpMsgBuf = NULL;
+	FormatMessage(
+		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		FORMAT_MESSAGE_FROM_SYSTEM |
+		FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL,
+		dw,
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		(LPTSTR)&lpMsgBuf,
+		0, NULL);
+	std::string msg = (LPTSTR)lpMsgBuf;
+	LocalFree(lpMsgBuf);
+	return msg;
 }
 
 int SqliteDB::Execute(const std::string& sql, std::string& err)

@@ -1,5 +1,7 @@
 ﻿#define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
+#include <boost/scoped_ptr.hpp>
+#include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/bind.hpp>
 #include "Falcon.h"
@@ -65,6 +67,7 @@ bool SlaveServer::RegisterSlave()
 				return false;
 			}
 			cluster_name = response["cluster"].asString();
+			slave_addr = response["slave"].asString();
 			hb_interval  = response["heartbeat"].asInt();
 			registered   = true;
 			LOG(INFO) << "Server registered in cluster " << cluster_name << " and heartbeat interval is " << hb_interval << " seconds";
@@ -82,9 +85,6 @@ void SlaveServer::RunServer()
 	// register in master server
 	if (!RegisterSlave())
 		return;
-
-	// task update thread
-
 
 	// run event loop
 	hb_timer.reset(new boost::asio::steady_timer(*ioctx, boost::asio::chrono::seconds(1)));
@@ -140,6 +140,7 @@ bool SlaveServer::CollectSystemInfo()
 	slave_name = name;
 	os_name = "Windows"; // just for now
 	os_version = "";
+	task_path = Util::GetModulePath() + "/tasks";
 
 	std::string proc_name;
 	Util::GetCPUInfo(proc_name, cpu_count, cpu_frequency);
@@ -177,6 +178,23 @@ bool SlaveServer::SetupListenHTTP()
 	listener->Accept();
 	LOG(INFO) << "HTTP service for cluster master OK";
 	return true;
+}
+
+TaskExecInfo::TaskExecInfo()
+	: startup_time(0), out_read_pipe(NULL), out_write_pipe(NULL), err_read_pipe(NULL),
+	  err_write_pipe(NULL), heartbeat(-1), exit_code(-1), exec_progress(0)
+{
+	ZeroMemory(&process_info, sizeof(PROCESS_INFORMATION));
+}
+
+TaskExecInfo::~TaskExecInfo()
+{
+	CloseHandle(out_read_pipe);
+	CloseHandle(out_write_pipe);
+	CloseHandle(err_read_pipe);
+	CloseHandle(err_write_pipe);
+	CloseHandle(process_info.hThread);
+	CloseHandle(process_info.hProcess);
 }
 
 struct SlaveAPI
@@ -228,17 +246,164 @@ void SlaveServer::Heartbeat(const boost::system::error_code&)
 {
 	hb_counter++;
 	// check for task update information and send as heartbeat if available
+	Json::Value hb_message(Json::objectValue);
+	hb_message["ip"] = slave_addr;
+	TaskExecInfoMap finished_tasks;
+	Json::Value update(Json::arrayValue);
+	do {
+		std::unique_lock<std::mutex> lock_execs(exec_mutex);
+		TaskExecInfoMap::iterator it = exec_tasks.begin();
+		while (it != exec_tasks.end()) {
+			TaskExecInfoPtr task = it->second;
+			if (task->heartbeat == -1) {
+				std::unique_lock<std::mutex> lock_task(task->mtx);
+				task->heartbeat = hb_counter; // reset heartbeat flag
+				// this task's status has changed
+				Json::Value v(Json::objectValue);
+				v["job_id"] = task->job_id;
+				v["task_id"] = task->task_id;
+				v["progress"] = task->exec_progress;
+				v["tiptext"] = task->exec_tip;
+				if (task->exit_code < 0) {
+					v["state"] = ToString(Task::State::Executing);
+					v["exit_code"] = -1;
+					update.append(v);
+				} else {
+					// this task has finished
+					if (task->exit_code == EXIT_SUCCESS)
+						v["state"] = ToString(Task::State::Completed);
+					else if(task->exit_code == EXIT_FAILURE)
+						v["state"] = ToString(Task::State::Failed);
+					else
+						v["state"] = ToString(Task::State::Aborted);
+					v["exit_code"] = task->exit_code;
+					finished_tasks.insert(*it);
+					it = exec_tasks.erase(it);
+					update.append(v);
+					continue;
+				}
+			}
+			it++;
+		}
+		hb_message["load"] = int(exec_tasks.size());
+		hb_message["update"] = update;
+	} while (false);
 
 	// check if heartbeat must be send
-	if (hb_elapsed < hb_interval)
+	if (update.size() == 0 && hb_elapsed < hb_interval)
 		hb_elapsed++;  // do nothing, just increase elapsed counter
 	else {
 		// must send heartbeat information
-
 		hb_elapsed = 0;
+		std::string result = HttpUtil::Post(master_addr + "/cluster/heartbeats", hb_message.toStyledString());
+		Json::Value response;
+		if (!Util::ParseJsonFromString(result, response) || response.isMember("error")) {
+			// TODO: save finished tasks into local file
+		}
 	}
 	if (!IsStopped())
 		hb_timer->async_wait(boost::bind(&SlaveServer::Heartbeat, this, _1));
+}
+
+static void StreamPipe2File(HANDLE pipe, std::ofstream& ofs)
+{
+	const int PIPE_READ_SIZE = 256;
+	char buf[PIPE_READ_SIZE];
+	while (true) {
+		DWORD read_bytes;
+		memset(buf, 0, PIPE_READ_SIZE);
+		if (!ReadFile(pipe, buf, PIPE_READ_SIZE, &read_bytes, NULL))
+			break;
+		ofs.write(buf, read_bytes);
+	}
+}
+
+void SlaveServer::MonitorTask(TaskExecInfoPtr task)
+{
+	// read std error output and save to error file
+	std::thread err_thread([&task]() {
+		char buf[256];
+		while (true) {
+			DWORD read_bytes;
+			memset(buf, 0, 256);
+			if (!ReadFile(task->err_read_pipe, buf, 256, &read_bytes, NULL))
+				break;
+			task->err_file.write(buf, read_bytes);
+		}
+	});
+	err_thread.detach();
+
+	// read std out output, update progress and save to out file
+	const int MAX_OUTPUT_LEN = 2048; // max output line length
+	char line[MAX_OUTPUT_LEN] = { 0 };
+	char* line_buf = line;
+	bool in_endl = false;
+	while (true) {
+		char buf[256] = { 0 };
+		DWORD read_bytes;
+		if (!ReadFile(task->out_read_pipe, buf, 256, &read_bytes, NULL))
+			break;
+		for (int i = 0; i < read_bytes; i++) {
+			if (buf[i] == '\n' || buf[i] == '\r') {
+				if (in_endl)
+					continue;
+				if (line[0] != '[') // example: [35%] creating output file
+					task->out_file << line << std::endl;
+				else {
+					// parse progress value and tip string
+					if (char* s = strchr(line, '%')) {
+						*s = '\0';
+						int progress = std::atoi(&line[1]);
+						std::string tip = s + 3; // skip ']' and blackspace, could be empty
+						std::unique_lock<std::mutex> lock(task->mtx);
+						if (task->exec_progress != progress || (!tip.empty() && task->exec_tip != tip)) {
+							task->exec_progress = progress;
+							task->exec_tip = tip;
+							task->heartbeat = -1;
+						}
+					}
+				}
+				memset(line, 0, MAX_OUTPUT_LEN);
+				line_buf = line;
+				in_endl = true;
+			} else {
+				*line_buf = buf[i];
+				line_buf++;
+				in_endl = false;
+			}
+		}
+	}
+
+	DWORD exit_code = EXIT_SUCCESS;
+	WaitForSingleObject(task->process_info.hProcess, INFINITE);
+	GetExitCodeProcess(task->process_info.hProcess, &exit_code);
+	do {
+		std::unique_lock<std::mutex> lock(task->mtx);
+		task->heartbeat = -1;
+		task->exit_code = (int)exit_code;
+		task->out_file.close();
+		task->err_file.close();
+		CloseHandle(task->out_read_pipe);
+		task->out_read_pipe = NULL;
+		CloseHandle(task->err_read_pipe);
+		task->err_read_pipe = NULL;
+	} while (false);
+
+	// transfer stdout and stderr files to cluster master
+	if (boost::filesystem::file_size(task->out_file_path) != 0) {
+
+	}
+	if (boost::filesystem::file_size(task->err_file_path) != 0) {
+
+	}
+}
+
+void SlaveServer::AddExecutingTask(TaskExecInfoPtr task)
+{
+	std::unique_lock<std::mutex> lock(exec_mutex);
+	exec_tasks.insert(std::make_pair(task->job_id + "." + task->task_id, task));
+	std::thread task_thread(boost::bind(&SlaveServer::MonitorTask, this, task));
+	task_thread.detach();
 }
 
 namespace handler {
@@ -253,13 +418,111 @@ struct TasksHandler : public Handler<SlaveServer>
 		Json::Value value;
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for registering slave";
-
 		LOG(INFO) << "New task(" << value["job_id"].asString() << "." << value["task_id"].asString() << ") received from master " << remote;
+
+		TaskPtr task(new Task(value["job_id"].asString(), value["task_id"].asString(), value["content"]["name"].asString()));
+		task->Assign(value["content"], nullptr);
 
 		Json::Value response(Json::objectValue);
 		response["state"] = ToString(Task::State::Executing);
 		response["time"] = time(NULL);
 		response["machine"] = server->GetHostName();
+
+		TaskExecInfoPtr exec_info(new TaskExecInfo());
+		exec_info->job_id  = task->job_id;
+		exec_info->task_id = task->task_id;
+		exec_info->local_dir = boost::str(boost::format("%s/%s/%s") % server->GetTaskDir() % task->job_id % task->task_id);
+		LOG(INFO) << "Create task local directory " << exec_info->local_dir;
+		if (!boost::filesystem::create_directories(exec_info->local_dir)) {
+			response["state"] = ToString(Task::State::Aborted);
+			response["message"] = "Failed to create task local directory " + exec_info->local_dir;
+			LOG(ERROR) << response["message"].asString();
+			return response.toStyledString();
+		}
+		LOG(INFO) << "Create stdout/stderr file for new task";
+		exec_info->out_file_path = boost::str(boost::format("%s/%s.out") % exec_info->local_dir % task->task_id);
+		exec_info->out_file.open(exec_info->out_file_path, std::ios_base::out);
+		exec_info->err_file_path = boost::str(boost::format("%s/%s.err") % exec_info->local_dir % task->task_id);
+		exec_info->err_file.open(exec_info->err_file_path, std::ios_base::out);
+		if (!exec_info->out_file.is_open() || !exec_info->err_file) {
+			response["state"] = ToString(Task::State::Aborted);
+			response["message"] = "Failed to create task stdout/stderr file under task local directory " + exec_info->local_dir;
+			LOG(ERROR) << response["message"].asString();
+			return response.toStyledString();
+		}
+
+		SECURITY_ATTRIBUTES stdoutsec;
+		stdoutsec.nLength = sizeof(SECURITY_ATTRIBUTES);
+		stdoutsec.bInheritHandle = true;
+		stdoutsec.lpSecurityDescriptor = NULL;
+
+		SECURITY_ATTRIBUTES stderrsec;
+		stderrsec.nLength = sizeof(SECURITY_ATTRIBUTES);
+		stderrsec.bInheritHandle = true;
+		stderrsec.lpSecurityDescriptor = NULL;
+
+		LOG(INFO) << "Create stdout/stderr pipe for new task process";
+		if (!CreatePipe(&exec_info->out_read_pipe, &exec_info->out_write_pipe, &stdoutsec, NULL) ||
+			!CreatePipe(&exec_info->err_read_pipe, &exec_info->err_write_pipe, &stderrsec, NULL)) {
+			std::string errmsg = Util::GetLastErrorMessage();
+			LOG(ERROR) << "Failed to create pipe: " << errmsg;
+			response["state"] = ToString(Task::State::Aborted);
+			response["message"] = errmsg;
+			return response.toStyledString();
+		}
+
+		STARTUPINFO startupinfo;
+		ZeroMemory(&startupinfo, sizeof(STARTUPINFO));
+		startupinfo.cb = sizeof(STARTUPINFO);
+		GetStartupInfo(&startupinfo);
+		startupinfo.hStdError = exec_info->err_write_pipe;
+		startupinfo.hStdOutput = exec_info->out_write_pipe;
+		startupinfo.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
+		startupinfo.wShowWindow = SW_HIDE;
+
+		boost::scoped_ptr<TCHAR> args(new TCHAR[task->exec_args.length() + 1]);
+		memset(args.get(), 0, sizeof(TCHAR)*(task->exec_args.length() + 1));
+		strcpy(args.get(), task->exec_args.c_str());
+		LOG(INFO) << "Task arguments: " << args.get();
+
+		TCHAR** envs_block = NULL;
+		if (!task->exec_envs.empty()) {
+			LOG(INFO) << "Build environment variables block for " << task->exec_envs;
+			std::vector<std::string> env_strs;
+			boost::split(env_strs, task->exec_envs, boost::is_any_of(";"));
+			envs_block = new TCHAR*[env_strs.size()+1];
+			for (size_t i = 0; i < env_strs.size()-1; i++) {
+				envs_block[i] = new TCHAR[env_strs[i].length() + 1];
+				memset(envs_block[i], 0, sizeof(TCHAR)*(env_strs[i].length() + 1));
+				strcpy(envs_block[i], env_strs[i].c_str());
+			}
+			envs_block[env_strs.size() - 1] = NULL;
+		}
+
+		LOG(INFO) << "Startup new process for command " << task->exec_command;
+		if (!CreateProcess(task->exec_command.c_str(), args.get(), NULL, NULL, TRUE, NULL, (LPVOID)envs_block,
+			task->work_dir.c_str(), &startupinfo, &exec_info->process_info)) {
+			response["state"] = ToString(Task::State::Aborted);
+			response["message"] = Util::GetLastErrorMessage();
+		}
+		if (envs_block) {
+			for (int i = 0; envs_block[i] != NULL; i++)
+				delete[] envs_block[i];
+			delete[] envs_block;
+		}
+		if (FromString<Task::State>(response["state"].asCString()) == Task::State::Aborted) {
+			LOG(ERROR) << "Start process failed: " << response["message"].asString();
+			return response.toStyledString();
+		}
+		LOG(INFO) << "Process is started: " << exec_info->process_info.dwProcessId;
+		exec_info->startup_time = time(NULL);
+
+		CloseHandle(exec_info->out_write_pipe);
+		exec_info->out_write_pipe = NULL;
+		CloseHandle(exec_info->err_write_pipe);
+		exec_info->err_write_pipe = NULL;
+
+		server->AddExecutingTask(exec_info);
 		return response.toStyledString();
 	}
 };

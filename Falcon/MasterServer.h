@@ -129,6 +129,7 @@ public:
 		void RegisterMachine(const std::string& name, const std::string& addr, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
 		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status);
 		void AddExecutingTask(const std::string& ip, const std::string& job_id, const std::string& task_id);
+		void Heartbeat(const std::string& ip);
 	};
 	DataState data_state;
 

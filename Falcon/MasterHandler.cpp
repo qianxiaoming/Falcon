@@ -89,7 +89,27 @@ struct SlavesHandler : public Handler<MasterServer>
 		// tell this slave the heartbeat interval
 		Json::Value response(Json::objectValue);
 		response["cluster"]   = server->GetConfig().cluster_name;
+		response["slave"] = remote;
 		response["heartbeat"] = server->GetConfig().slave_heartbeat;
+		return response.toStyledString();
+	}
+};
+
+// handler for "/cluster/heartbeats" endpoint
+struct HeartbeatsHandler : public Handler<MasterServer>
+{
+	// register new slave
+	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		Json::Value value;
+		if (!Util::ParseJsonFromString(body, value))
+			return "Illegal json body for heartbeat";
+
+		std::string slave = value["ip"].asString();
+		server->State().Heartbeat(slave);
+
+		Json::Value response(Json::objectValue);
+		response["heartbeat"] = "ok";
 		return response.toStyledString();
 	}
 };
@@ -124,6 +144,7 @@ void MasterServer::SetupAPIHandler()
 
 	static MasterAPI cluster;
 	cluster.RegisterHandler("/slaves", new handler::cluster::SlavesHandler());
+	cluster.RegisterHandler("/heartbeats", new handler::cluster::HeartbeatsHandler());
 	master_api_table["/cluster/"] = &cluster;
 }
 

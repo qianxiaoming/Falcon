@@ -2,6 +2,8 @@
 #define FALCON_SLAVE_SERVER_H
 
 #include <string>
+#include <list>
+#include <fstream>
 #include <boost/smart_ptr.hpp>
 #include <boost/asio/io_context.hpp>
 #include "blockingconcurrentqueue.h"
@@ -13,6 +15,37 @@ namespace falcon {
 
 typedef boost::scoped_ptr<boost::asio::steady_timer> HeartbeatTimerPtr;
 
+#ifdef WIN32
+struct TaskExecInfo
+{
+	TaskExecInfo();
+	~TaskExecInfo();
+
+	std::string job_id;
+	std::string task_id;
+	time_t startup_time;
+	PROCESS_INFORMATION process_info;
+	HANDLE out_read_pipe;
+	HANDLE out_write_pipe;
+	HANDLE err_read_pipe;
+	HANDLE err_write_pipe;
+	std::string local_dir;
+	std::string out_file_path;
+	std::string err_file_path;
+	std::ofstream out_file;
+	std::ofstream err_file;
+
+	std::mutex mtx;
+	int heartbeat;
+	int exit_code;
+	int exec_progress;
+	std::string exec_tip;
+};
+#endif
+typedef std::shared_ptr<TaskExecInfo> TaskExecInfoPtr;
+typedef std::map<std::string, TaskExecInfoPtr> TaskExecInfoMap;
+
+// Slave server is responsible for executing task dispatched from master server
 class SlaveServer : public ServerBase
 {
 public:
@@ -37,6 +70,10 @@ public:
 
 	std::string GetHostName() const { return slave_name; }
 
+	std::string GetTaskDir() const { return task_path; }
+
+	void AddExecutingTask(TaskExecInfoPtr task);
+
 	std::string HandleMasterRequest(
 		const std::string& remote_addr,
 		http::verb verb,
@@ -53,6 +90,8 @@ private:
 
 	void Heartbeat(const boost::system::error_code&);
 
+	void MonitorTask(TaskExecInfoPtr task);
+
 	std::string               cluster_name;
 	std::string               slave_name;
 	std::string               os_name;
@@ -60,6 +99,7 @@ private:
 	int                       cpu_count;
 	int                       cpu_frequency;
 	ResourceSet               slave_resources;
+	std::string               task_path;
 
 	std::string               slave_addr;
 	unsigned short            slave_port;
@@ -73,6 +113,9 @@ private:
 
 	IOContextPtr              ioctx;
 	ListenerPtr               listener;
+
+	std::mutex                exec_mutex;
+	TaskExecInfoMap           exec_tasks;
 };
 
 }

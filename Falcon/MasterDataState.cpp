@@ -177,4 +177,9 @@ void MasterServer::DataState::AddExecutingTask(const std::string& ip, const std:
 	progress[job_id][task_id] = 0.0f;
 }
 
+void MasterServer::DataState::Heartbeat(const std::string& ip)
+{
+
+}
+
 }

@@ -106,7 +106,7 @@ struct Task
 
 	Task(const std::string& job_id, const std::string& task_id, std::string name);
 
-	void Assign(const Json::Value& value, const Job& job);
+	void Assign(const Json::Value& value, const Job* job);
 
 	Json::Value ToJson() const;
 
@@ -116,6 +116,7 @@ struct Task
 	std::string exec_command;
 	std::string exec_args;
 	std::string exec_envs;
+	std::string work_dir;
 	LabelList   task_labels;
 	ResourceSet resources;
 
@@ -145,6 +146,7 @@ struct Job
 	LabelList   job_labels;
 	Type        job_type;
 	int         job_priority;
+	std::string work_dir;
 	ResourceSet resources;    // default resources for tasks
 	
 	time_t      submit_time;
