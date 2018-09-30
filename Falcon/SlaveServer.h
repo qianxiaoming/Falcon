@@ -66,6 +66,8 @@ public:
 public:
 	void SetMasterAddr(std::string addr);
 
+	void SetSlavePort(uint16_t port);
+
 	bool SetupListenHTTP();
 
 	std::string GetHostName() const { return slave_name; }
@@ -94,6 +96,7 @@ private:
 
 	std::string               cluster_name;
 	std::string               slave_name;
+	std::string               slave_id;
 	std::string               os_name;
 	std::string               os_version;
 	int                       cpu_count;
@@ -102,7 +105,7 @@ private:
 	std::string               task_path;
 
 	std::string               slave_addr;
-	unsigned short            slave_port;
+	uint16_t                  slave_port;
 	std::string               master_addr;
 	bool                      registered;
 

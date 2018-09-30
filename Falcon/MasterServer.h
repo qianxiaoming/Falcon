@@ -18,15 +18,13 @@ struct MasterConfig
 	std::string cluster_name;
 
 	std::string slave_addr;
-	unsigned short slave_port;
+	uint16_t slave_port;
 	int slave_num_threads;
 	int slave_heartbeat;
 
 	std::string client_addr;
-	unsigned short client_port;
+	uint16_t client_port;
 	int client_num_threads;
-
-	unsigned short slave_listen_port;
 
 	int dispatch_num_threads;
 	int dispatch_try_times;
@@ -37,10 +35,10 @@ typedef ::moodycamel::BlockingConcurrentQueue<ScheduleEvent> ScheduleEventQueue;
 
 struct DispatchTask
 {
-	DispatchTask(const std::string& target, const std::string& job_id, const std::string& task_id)
-		: dispatch_count(0), target(target), job_id(job_id), task_id(task_id) { }
+	DispatchTask(const std::string& slave_id, const std::string& job_id, const std::string& task_id)
+		: dispatch_count(0), slave_id(slave_id), job_id(job_id), task_id(task_id) { }
 	int dispatch_count;
-	std::string target;
+	std::string slave_id;
 	std::string job_id;
 	std::string task_id;
 	Json::Value content;
@@ -126,10 +124,10 @@ public:
 		JobPtr GetJob(const std::string& job_id) const;
 		MachinePtr GetMachine(const std::string& ip) const;
 		bool InsertNewJob(const std::string& job_id, const std::string& name, Job::Type type, const Json::Value& value, std::string& err);
-		void RegisterMachine(const std::string& name, const std::string& addr, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
+		std::string RegisterMachine(const std::string& name, const std::string& addr, uint16_t port, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
 		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status);
-		void AddExecutingTask(const std::string& ip, const std::string& job_id, const std::string& task_id);
-		void Heartbeat(const std::string& ip);
+		void AddExecutingTask(const std::string& slave_id, const std::string& job_id, const std::string& task_id);
+		bool Heartbeat(const std::string& slave_id);
 	};
 	DataState data_state;
 

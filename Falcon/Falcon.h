@@ -12,9 +12,9 @@
 
 namespace falcon {
 
-const unsigned short MASTER_SLAVE_PORT  = 36780;
-const unsigned short MASTER_CLIENT_PORT = 36781;
-const unsigned short SLAVE_LISTEN_PORT  = 36782;
+const uint16_t MASTER_SLAVE_PORT  = 36780;
+const uint16_t MASTER_CLIENT_PORT = 36781;
+const uint16_t SLAVE_LISTEN_PORT  = 36782;
 
 #define FALCON_MASTER_SERVER_NAME "Falcon-Master"
 #define FALCON_SLAVE_SERVER_NAME  "Falcon-Slave"
@@ -83,6 +83,7 @@ struct ResourceSet
 };
 
 typedef std::map<std::string, std::string> LabelList;
+std::string ToString(const LabelList& labels);
 
 struct Job;
 
@@ -190,19 +191,21 @@ struct DAGJob : public Job
 struct Machine
 {
 	enum class State { Online, Offline, Unknown };
-	std::string name;
-	std::string ip;
-	std::string os;
-	int         cpu_count;
-	int         cpu_frequency;
-	State       state;
-	LabelList   labels;
-	ResourceSet resources;
+	std::string    id;
+	std::string    name;
+	std::string    address;
+	uint16_t       port;
+	std::string    os;
+	int            cpu_count;
+	int            cpu_frequency;
+	State          state;
+	LabelList      labels;
+	ResourceSet    resources;
 
-	TaskList    exec_tasks;
-	ResourceSet availables;
-	time_t      online;
-	time_t      heartbeat;
+	TaskList       exec_tasks;
+	ResourceSet    availables;
+	time_t         online;
+	time_t         heartbeat;
 };
 typedef boost::shared_ptr<Machine> MachinePtr;
 typedef std::map<std::string, MachinePtr> MachineMap;

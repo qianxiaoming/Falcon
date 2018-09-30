@@ -315,6 +315,21 @@ bool ResourceSet::IsSatisfiable(const ResourceSet& other) const
 	return true;
 }
 
+std::string ToString(const LabelList& labels)
+{
+	if (labels.empty())
+		return "";
+	std::ostringstream oss;
+	LabelList::const_iterator it = labels.begin();
+	oss << it->first << "=" << it->second;
+	it++;
+	while (it != labels.end()) {
+		oss << ";" << it->first << "=" << it->second;
+		it++;
+	}
+	return oss.str();
+}
+
 Task::Status::Status()
 	: state(State::Queued), exit_code(0), exec_time(0), finish_time(0)
 {
@@ -337,9 +352,6 @@ void Task::Assign(const Json::Value& value, const Job* job)
 
 	if (value.isMember("exec"))
 		exec_command = value["exec"].asString();
-
-	if (value.isMember("args"))
-		exec_args = value["args"].asString();
 
 	if (value.isMember("workdir"))
 		work_dir = value["workdir"].asString();
@@ -364,7 +376,15 @@ void Task::Assign(const Json::Value& value, const Job* job)
 
 Json::Value Task::ToJson() const
 {
-	return Json::Value();
+	Json::Value v(Json::objectValue);
+	v["name"] = task_name;
+	v["exec"] = exec_command;
+	v["args"] = exec_args;
+	v["envs"] = exec_envs;
+	v["workdir"] = work_dir;
+	v["labels"] = ToString(task_labels);
+	v["resources"] = resources.ToJson();
+	return v;
 }
 
 Job::Job(std::string id, std::string name, Type type)

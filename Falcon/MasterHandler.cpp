@@ -27,6 +27,7 @@ struct JobsHandler : public Handler<MasterServer>
 		Json::Value value;
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for submitting new job";
+		LOG(INFO) << "New job \"" << value["name"].asString() << "\" is submited from " << remote;
 
 		std::string job_id, job_dir, err;
 		// create private directory for new job
@@ -36,12 +37,14 @@ struct JobsHandler : public Handler<MasterServer>
 			if (!boost::filesystem::exists(job_dir))
 				break;
 		}
+		LOG(INFO) << "  Job id is allocated: " << job_id;
 		boost::system::error_code ec;
 		if (!boost::filesystem::create_directories(job_dir, ec))
 			return "Failed to create job directory: " + ec.message();
 		std::ofstream ofs(job_dir + "/job_content.json", std::ios_base::out);
 		ofs << body;
 		ofs.close();
+		LOG(INFO) << "  Job local directory is " << job_dir;
 
 		// save new job into database
 		if (!server->State().InsertNewJob(job_id, value["name"].asString(), FromString<Job::Type>(value["type"].asCString()), value, err)) {
@@ -74,14 +77,15 @@ struct SlavesHandler : public Handler<MasterServer>
 
 		// register this slave in data state
 		std::string name = value["name"].asString();
-		LOG(INFO) << "Machine '" << name << "'(" << remote << ") is joining cluster...";
+		uint16_t port = value["port"].asUInt();
+		LOG(INFO) << "Machine \"" << name << "\"(" << remote << ":"<<port<<") is joining cluster...";
 		int cpu_count = value["cpu"]["count"].asInt();
 		int cpu_freq  = value["cpu"]["frequency"].asInt();
 		if (!value.isMember("resources"))
 			return "No resource specified for registered machine " + remote;
 		ResourceSet resources = Util::ParseResourcesJson(value["resources"]);
-		server->State().RegisterMachine(name, remote, value["os"].asString(), cpu_count, cpu_freq, resources);
-		LOG(INFO) << "Machine '" << name << "' registered";
+		std::string id = server->State().RegisterMachine(name, remote, port, value["os"].asString(), cpu_count, cpu_freq, resources);
+		LOG(INFO) << "Machine \"" << name << "\" registered and will be identified by \"" << id << "\"";
 
 		// notify scheduler thread by new slave event
 		server->NotifyScheduleEvent(ScheduleEvent::SlaveJoin);
@@ -89,7 +93,8 @@ struct SlavesHandler : public Handler<MasterServer>
 		// tell this slave the heartbeat interval
 		Json::Value response(Json::objectValue);
 		response["cluster"]   = server->GetConfig().cluster_name;
-		response["slave"] = remote;
+		response["id"]        = id;
+		response["addr"]      = remote;
 		response["heartbeat"] = server->GetConfig().slave_heartbeat;
 		return response.toStyledString();
 	}
@@ -105,11 +110,13 @@ struct HeartbeatsHandler : public Handler<MasterServer>
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for heartbeat";
 
-		std::string slave = value["ip"].asString();
-		server->State().Heartbeat(slave);
-
+		std::string slave_id = value["id"].asString();
+		DLOG(INFO) << "Heartbeat from " << slave_id << " received: Task Load=" << value["load"].asInt();
 		Json::Value response(Json::objectValue);
-		response["heartbeat"] = "ok";
+		if (server->State().Heartbeat(slave_id))
+			response["heartbeat"] = "ok";
+		else
+			response["heartbeat"] = "not found";
 		return response.toStyledString();
 	}
 };

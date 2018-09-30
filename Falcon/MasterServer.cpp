@@ -13,7 +13,7 @@ namespace falcon {
 MasterConfig::MasterConfig()
 	: cluster_name("Falcon Cluster"),
 	  slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3), slave_heartbeat(5),
-	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2), slave_listen_port(SLAVE_LISTEN_PORT),
+	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2),
 	  dispatch_num_threads(1), dispatch_try_times(2)
 {
 }
@@ -185,19 +185,19 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 		}
 		std::unique_ptr<DispatchTask> task(t);
 
-		LOG(INFO) << "Dispatching " << task->job_id << "." << task->task_id << " to " << task->target;
+		LOG(INFO) << "Dispatching " << task->job_id << "." << task->task_id << " to " << task->slave_id;
 		bool dispatched = false;
 		Json::Value request(Json::objectValue);
-		request["job_id"] = task->job_id;
+		request["job_id"]  = task->job_id;
 		request["task_id"] = task->task_id;
 		request["content"] = task->content;
-		std::string result = HttpUtil::Post(boost::str(boost::format("%s:%d/tasks") % task->target % int(server->GetConfig().slave_listen_port)), request.toStyledString());
+		std::string result = HttpUtil::Post(boost::str(boost::format("%s/tasks") % task->slave_id), request.toStyledString());
 		Json::Value response;
 		if (!Util::ParseJsonFromString(result, response))
 			LOG(ERROR) << "Invalid response from slave: " << result;
 		else {
 			if (response.isMember("error")) {
-				LOG(ERROR) << "Failed to dispatch task to slave "<<task->target<<": " << response["error"].asString();
+				LOG(ERROR) << "Failed to dispatch task to slave "<<task->slave_id<<": " << response["error"].asString();
 			} else {
 				dispatched = true;
 				Task::State state = FromString<Task::State>(response["state"].asCString());
@@ -213,7 +213,7 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 				}
 				server->State().UpdateTaskStatus(task->job_id, task->task_id, status);
 				if (state == Task::State::Executing)
-					server->State().AddExecutingTask(task->target, task->job_id, task->task_id);
+					server->State().AddExecutingTask(task->slave_id, task->job_id, task->task_id);
 			}
 		}
 		

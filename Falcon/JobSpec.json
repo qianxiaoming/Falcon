@@ -71,6 +71,7 @@ DAG job:
 POST /cluster/slaves
 {
 	"name": "node1",
+	"port": 36782,
 	"os": "Windows",
 	"version": "",
 	"cpu": {
@@ -87,7 +88,8 @@ POST /cluster/slaves
 Response
 {
     "cluster": "my cluster",
-	"slave": "192.168.0.1",
+	"id": "192.168.0.1:32768",
+	"addr": "192.168.0.1",
 	"heartbeat": 5
 }
 
@@ -121,7 +123,7 @@ or
 4. Slave heart beat
 POST /cluster/heartbeats
 {
-	"ip": "192.168.0.1",
+	"id": "192.168.0.1:36782",
 	"load": 2,
 	"update": [
 		{

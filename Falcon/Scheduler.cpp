@@ -110,7 +110,7 @@ Scheduler::Table Scheduler::ScheduleTasks()
 					if (l.props.find(RESOURCE_FREQ)->second < r.props.find(RESOURCE_FREQ)->second) return false;
 					return l.mac->cpu_frequency > r.mac->cpu_frequency;
 				});
-				std::string target = mac_caps[0].mac->ip;
+				std::string target = mac_caps[0].mac->id;
 
 				// put this task into result table
 				Table::iterator res_iter = result.find(target);

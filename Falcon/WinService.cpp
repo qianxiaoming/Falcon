@@ -88,11 +88,18 @@ int main(int argc, const char *argv[])
 	else if (strcmp(argv[1], "slave") == 0) {
 		falcon::SlaveServer* slave = falcon::SlaveServer::Instance();
 		if (argc >= 3)
-			slave->SetMasterAddr(argv[2]);
-		else if (char* ip = getenv("FALCON_MASTER_IP"))
-			slave->SetMasterAddr(ip);
+			slave->SetSlavePort(std::atoi(argv[2]));
+		else if (char* port = getenv("FALCON_SLAVE_PORT"))
+			slave->SetSlavePort(std::atoi(port));
 		else
-			slave->SetMasterAddr("0.0.0.0");
+			slave->SetSlavePort(falcon::SLAVE_LISTEN_PORT);
+
+		if (argc >= 4)
+			slave->SetMasterAddr(argv[3]);
+		else if (char* addr = getenv("FALCON_MASTER_IP"))
+			slave->SetMasterAddr(addr);
+		else
+			slave->SetMasterAddr("127.0.0.1");
 		server_base = slave;
 	} else
 		return EXIT_FAILURE;
@@ -106,7 +113,7 @@ int main(int argc, const char *argv[])
 	StartServiceCtrlDispatcher(ServiceTable);
 	return 0;
 }
-//
+
 //int main(int argc, const char *argv[])
 //{
 //	char module_name[256] = { 0 };
@@ -118,11 +125,14 @@ int main(int argc, const char *argv[])
 //	}
 //	std::string role = argv[1];
 //	std::string logging = std::string("falcon-") + role;
+//	FLAGS_log_dir = falcon::Util::GetModulePath();
+//	FLAGS_logbuflevel = -1;
 //	google::InitGoogleLogging(logging.c_str());
 //
 //	if (role == "slave") {
 //		falcon::SlaveServer* slave_server = falcon::SlaveServer::Instance();
-//		slave_server->SetMasterAddr("127.0.0.1");
+//		slave_server->SetMasterAddr(argc > 2 ? argv[2] : "127.0.0.1");
+//		slave_server->SetSlavePort(argc > 3 ? std::atoi(argv[3]) : falcon::SLAVE_LISTEN_PORT);
 //		if (!slave_server->StartServer())
 //			return EXIT_FAILURE;
 //		else {

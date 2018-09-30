@@ -63,14 +63,16 @@ bool MasterServer::DataState::InsertNewJob(const std::string& job_id, const std:
 	return true;
 }
 
-void MasterServer::DataState::RegisterMachine(const std::string& name, const std::string& addr, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources)
+std::string MasterServer::DataState::RegisterMachine(const std::string& name, const std::string& addr, uint16_t port, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources)
 {
 	std::lock_guard<std::mutex> lock(machine_mutex);
-	if (machines.find(name) != machines.end())
-		LOG(WARNING) << "Machine named '" << name << "' already exists and will be replaced.";
 	MachinePtr mac(new Machine);
+	mac->id = boost::str(boost::format("%s:%d") % addr % int(port));
+	if (machines.find(mac->id) != machines.end())
+		LOG(WARNING) << "Machine identified by '" << mac->id << "' already exists and will be replaced.";
 	mac->name = name;
-	mac->ip = addr;
+	mac->address = addr;
+	mac->port = port;
 	mac->os = os;
 	mac->cpu_count = cpu_count;
 	mac->cpu_frequency = cpu_freq;
@@ -79,7 +81,8 @@ void MasterServer::DataState::RegisterMachine(const std::string& name, const std
 	mac->state = Machine::State::Online;
 	mac->online = time(NULL);
 	mac->heartbeat = mac->online;
-	machines[addr] = mac;
+	machines[mac->id] = mac;
+	return mac->id;
 }
 
 bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status)
@@ -156,7 +159,7 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 	return true;
 }
 
-void MasterServer::DataState::AddExecutingTask(const std::string& ip, const std::string& job_id, const std::string& task_id)
+void MasterServer::DataState::AddExecutingTask(const std::string& slave_id, const std::string& job_id, const std::string& task_id)
 {
 	std::lock_guard<std::mutex> lock_queue(queue_mutex), lock_macs(machine_mutex);
 	JobPtr job = GetJob(job_id);
@@ -165,10 +168,10 @@ void MasterServer::DataState::AddExecutingTask(const std::string& ip, const std:
 	TaskPtr task = job->GetTask(task_id);
 	if (!task)
 		return;
-	MachinePtr mac = GetMachine(ip);
+	MachinePtr mac = GetMachine(slave_id);
 	if (mac) {
 		mac->availables -= task->resources;
-		LOG(INFO) << "Machine " << mac->name << ": " << mac->availables.ToString();
+		LOG(INFO) << "Machine " << slave_id << ": " << mac->availables.ToString();
 	}
 
 	std::lock_guard<std::mutex> lock_prog(prog_mutex);
@@ -177,9 +180,14 @@ void MasterServer::DataState::AddExecutingTask(const std::string& ip, const std:
 	progress[job_id][task_id] = 0.0f;
 }
 
-void MasterServer::DataState::Heartbeat(const std::string& ip)
+bool MasterServer::DataState::Heartbeat(const std::string& slave_id)
 {
-
+	std::unique_lock<std::mutex> lock(machine_mutex);
+	MachineMap::iterator it = machines.find(slave_id);
+	if (it == machines.end())
+		return false;
+	it->second->heartbeat = time(NULL);
+	return true;
 }
 
 }
