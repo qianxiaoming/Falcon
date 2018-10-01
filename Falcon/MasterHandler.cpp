@@ -124,6 +124,33 @@ struct HeartbeatsHandler : public Handler<MasterServer>
 	}
 };
 
+// handler for "/cluster/logs" endpoint
+struct LogsHandler : public Handler<MasterServer>
+{
+	// register new slave
+	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		std::string job_id = params.at("job_id"), task_id = params.at("task_id"), name = params.at("name");
+		uintmax_t offset = std::atoi(params.at("offset").c_str());
+		LOG(INFO) << "Save log file for task " << job_id << "." << task_id << ": Name=" << name << ", offset=" << offset;
+	
+		Json::Value response(Json::objectValue);
+		std::string log_file = boost::str(boost::format("%s/jobs/%s/%s") % Util::GetModulePath() % job_id % name);
+		FILE* f = fopen(log_file.c_str(), "wb");
+		if (!f) {
+			response["error"] = boost::str(boost::format("Failed to open log file %s: %s") % log_file % strerror(errno));
+			LOG(ERROR) << response["error"].asString();
+			return response.toStyledString();
+		}
+		if (offset > 0)
+			fseek(f, offset, SEEK_SET);
+		fwrite(body.c_str(), 1, body.size(), f);
+		fclose(f);
+		response["status"] = "ok";
+		return response.toStyledString();
+	}
+};
+
 }
 }
 
@@ -155,6 +182,7 @@ void MasterServer::SetupAPIHandler()
 	static MasterAPI cluster;
 	cluster.RegisterHandler("/slaves", new handler::cluster::SlavesHandler());
 	cluster.RegisterHandler("/heartbeats", new handler::cluster::HeartbeatsHandler());
+	cluster.RegisterHandler("/logs", new handler::cluster::LogsHandler());
 	master_api_table["/cluster/"] = &cluster;
 }
 

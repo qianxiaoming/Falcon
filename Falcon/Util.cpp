@@ -11,6 +11,7 @@
 #include <boost/uuid/random_generator.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/filesystem.hpp>
 #include "Falcon.h"
 #include "Util.h"
 
@@ -310,6 +311,82 @@ std::string HttpUtil::Delete(const std::string& url, const std::string& content)
 		curl_easy_cleanup(curl);
 	}
 	return result;
+}
+
+bool HttpUtil::UploadFile(const std::string& url, const std::string& file, uintmax_t file_size, uintmax_t chunk)
+{
+	Json::Value ret;
+	boost::system::error_code ec;
+	if (file_size == 0) {
+		file_size = boost::filesystem::file_size(file, ec);
+		if (ec) {
+			LOG(ERROR) << ec.message();
+			return false;
+		}
+	}
+	uintmax_t count = file_size / chunk;
+	if (file_size % chunk != 0)
+		count++;
+	uintmax_t offset = 0;
+	FILE* f = fopen(file.c_str(), "rb");
+	if (!f) {
+		LOG(ERROR) << "Cannot open file " << file;
+		return false;
+	}
+
+	CURL *curl = curl_easy_init();
+	struct curl_slist *headers = NULL;
+	headers = curl_slist_append(headers, "Accept:application/octet-stream");
+	headers = curl_slist_append(headers, "Content-Type:application/octet-stream");
+	headers = curl_slist_append(headers, "charset:utf-8");
+
+	boost::scoped_array<char> buffer(new char[chunk]);
+	for (uintmax_t i = 0; i < count; i++) {
+		uintmax_t upload_size = i == (count - 1) ? (file_size % chunk) : chunk;
+		if (upload_size == 0)
+			upload_size = chunk;
+		memset(buffer.get(), 0, chunk);
+		fread(buffer.get(), 1, upload_size, f);
+
+		std::string cur_url = url;
+		cur_url += boost::str(boost::format("&offset=%ld&size=%ld") % offset % upload_size);
+		curl_easy_setopt(curl, CURLOPT_URL, cur_url.c_str());
+		curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+		curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 120L);
+		curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 60L);
+		curl_easy_setopt(curl, CURLOPT_HEADER, 0);
+
+		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, buffer.get());
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, upload_size);
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpWriter);
+	
+		std::string result;
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
+
+		CURLcode res = curl_easy_perform(curl);
+		if (res != CURLE_OK)
+			res = TryHttpOperation(url, curl, 3, 5);
+
+		if (res != CURLE_OK) {
+			LOG(ERROR) << curl_easy_strerror(res);
+			break;
+		}
+		Json::Value value;
+		if (!Util::ParseJsonFromString(result, value)) {
+			LOG(ERROR) << result;
+			return false;
+		}
+		if (value.isMember("error")) {
+			LOG(ERROR) << value["error"].asString();
+			return false;
+		}
+		offset += upload_size;
+	}
+	curl_easy_cleanup(curl);
+	curl_slist_free_all(headers);
+	fclose(f);
+	return offset == file_size;
 }
 
 std::string HttpUtil::ParseHttpURL(const std::string& target, size_t offset, URLParamMap& params)

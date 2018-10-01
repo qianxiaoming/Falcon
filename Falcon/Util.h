@@ -41,6 +41,8 @@ public:
 
 	static std::string Delete(const std::string& url, const std::string& content = "");
 
+	static bool UploadFile(const std::string& url, const std::string& file, uintmax_t file_size = 0, uintmax_t chunk=1024*1024);
+
 	static std::string HttpUtil::ParseHttpURL(const std::string& target, size_t offset, URLParamMap& params);
 };
 

@@ -422,11 +422,21 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 	} while (false);
 
 	// transfer stdout and stderr files to cluster master
-	if (boost::filesystem::file_size(task->out_file_path) != 0) {
-
+	uintmax_t out_size = boost::filesystem::file_size(task->out_file_path);
+	if (out_size != 0) {
+		std::string file_name = boost::filesystem::path(task->out_file_path).filename().string();
+		std::string url = boost::str(boost::format("%s/cluster/logs?name=%s&job_id=%s&task_id=%s")
+			% master_addr % file_name % task->job_id % task->task_id);
+		if (!HttpUtil::UploadFile(url, task->out_file_path, out_size))
+			LOG(ERROR) << "Failed to update task stdout file " << task->out_file_path;
 	}
-	if (boost::filesystem::file_size(task->err_file_path) != 0) {
-
+	uintmax_t err_size = boost::filesystem::file_size(task->err_file_path);
+	if (err_size != 0) {
+		std::string file_name = boost::filesystem::path(task->err_file_path).filename().string();
+		std::string url = boost::str(boost::format("%s/cluster/logs?name=%s&job_id=%s&task_id=%s")
+			% master_addr % file_name % task->job_id % task->task_id);
+		if (!HttpUtil::UploadFile(url, task->err_file_path, err_size))
+			LOG(ERROR) << "Failed to update task stderr file " << task->err_file_path;
 	}
 }
 

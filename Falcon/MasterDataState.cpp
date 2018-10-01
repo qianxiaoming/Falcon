@@ -164,6 +164,7 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 	}
 
 	if (old_state != new_state) {
+		LOG(INFO) << "The state of job " << job_id << " is set to " << ToString(new_state);
 		std::string sql;
 		if (new_state == Job::State::Executing)
 			sql = boost::str(boost::format("update Job set state=\"%s\",exec_time=%d where id=\"%s\"") % ToString(new_state) % status.exec_time % job_id);
