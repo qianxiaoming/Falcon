@@ -85,7 +85,7 @@ struct SlavesHandler : public Handler<MasterServer>
 			return "No resource specified for registered machine " + remote;
 		ResourceSet resources = Util::ParseResourcesJson(value["resources"]);
 		std::string id = server->State().RegisterMachine(name, remote, port, value["os"].asString(), cpu_count, cpu_freq, resources);
-		LOG(INFO) << "Machine \"" << name << "\" registered and will be identified by \"" << id << "\"";
+		LOG(INFO) << "Machine \"" << name << "\" identified by \"" << id << "\" registered";
 
 		// notify scheduler thread by new slave event
 		server->NotifyScheduleEvent(ScheduleEvent::SlaveJoin);
@@ -113,9 +113,12 @@ struct HeartbeatsHandler : public Handler<MasterServer>
 		std::string slave_id = value["id"].asString();
 		DLOG(INFO) << "Heartbeat from " << slave_id << " received: Task Load=" << value["load"].asInt();
 		Json::Value response(Json::objectValue);
-		if (server->State().Heartbeat(slave_id))
+		int finished = 0;
+		if (server->State().Heartbeat(slave_id, value["updates"], finished)) {
 			response["heartbeat"] = "ok";
-		else
+			if (finished)
+				server->NotifyScheduleEvent(ScheduleEvent::TaskFinished);
+		} else
 			response["heartbeat"] = "not found";
 		return response.toStyledString();
 	}

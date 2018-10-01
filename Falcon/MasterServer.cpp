@@ -12,7 +12,7 @@ namespace falcon {
 
 MasterConfig::MasterConfig()
 	: cluster_name("Falcon Cluster"),
-	  slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3), slave_heartbeat(5),
+	  slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3), slave_heartbeat(10),
 	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2),
 	  dispatch_num_threads(1), dispatch_try_times(2)
 {
@@ -202,12 +202,13 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 				dispatched = true;
 				Task::State state = FromString<Task::State>(response["state"].asCString());
 				Task::Status status(state);
+				status.slave_id = task->slave_id;
 				if (state == Task::State::Executing) {
-					status.exec_time = response["time"].asInt64();
-					status.machine   = response["machine"].asString();
-				}
-				else if (state == Task::State::Aborted) {
-					status.errmsg      = response["message"].asString();
+					status.exec_time   = response["time"].asInt64();
+					status.machine     = response["machine"].asString();
+				} else if (state == Task::State::Aborted) {
+					status.exit_code   = response["exit_code"].asUInt();
+					status.error_msg   = response["message"].asString();
 					status.finish_time = response["time"].asInt64();
 					status.machine     = response["machine"].asString();
 				}

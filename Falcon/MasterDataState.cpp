@@ -14,9 +14,9 @@ JobPtr MasterServer::DataState::GetJob(const std::string& job_id) const
 	return *it;
 }
 
-MachinePtr MasterServer::DataState::GetMachine(const std::string& ip) const
+MachinePtr MasterServer::DataState::GetMachine(const std::string& slave_id) const
 {
-	MachineMap::const_iterator it = machines.find(ip);
+	MachineMap::const_iterator it = machines.find(slave_id);
 	if (it == machines.end())
 		return nullptr;
 	return it->second;
@@ -98,22 +98,40 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 		}
 
 		if (TaskPtr task = job->GetTask(task_id)) {
-			task->task_status = Task::Status();
 			task->task_status.state = status.state;
 			if (status.state == Task::State::Executing) {
-				task->task_status.exec_time = status.exec_time;
-				task->task_status.machine = status.machine;
+				if (status.exec_time > 0)
+					task->task_status.exec_time = status.exec_time;
+				if (!status.machine.empty())
+					task->task_status.machine = status.machine;
+				if (!status.slave_id.empty())
+					task->task_status.slave_id = status.slave_id;
+				task->task_status.progress = status.progress;
+				if (!status.exec_tip.empty())
+					task->task_status.exec_tip = status.exec_tip;
 			}
 			else if (status.state == Task::State::Completed || status.state == Task::State::Failed) {
 				task->task_status.finish_time = status.finish_time;
 				task->task_status.exit_code = status.exit_code;
 			}
 			else if (status.state == Task::State::Aborted) {
+				if (!status.machine.empty())
+					task->task_status.machine = status.machine;
+				if (!status.slave_id.empty())
+					task->task_status.slave_id = status.slave_id;
 				task->task_status.finish_time = status.finish_time;
-				task->task_status.errmsg = status.errmsg;
+				task->task_status.exit_code = status.exit_code;
+				task->task_status.error_msg = status.error_msg;
 			}
 			else if (status.state == Task::State::Terminated)
 				task->task_status.finish_time = status.finish_time;
+
+			if (status.IsFinished()) {
+				std::lock_guard<std::mutex> lock_macs(machine_mutex);
+				MachinePtr mac = GetMachine(task->task_status.slave_id);
+				if (mac)
+					mac->availables += task->resources;
+			}
 		}
 
 		// update job state according to tasks
@@ -133,7 +151,7 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 	else if (status.state == Task::State::Completed || status.state == Task::State::Failed)
 		oss << ",finish_time=" << status.finish_time << ",exit_code=" << status.exit_code << ",errmsg=\"\"";
 	else if (status.state == Task::State::Aborted)
-		oss << ",finish_time=" << status.finish_time << ",errmsg=\"" << status.errmsg << "\",exit_code=0,machine=\"" << status.machine << "\"";
+		oss << ",finish_time=" << status.finish_time << ",errmsg=\"" << status.error_msg << "\",exit_code=0,machine=\"" << status.machine << "\"";
 	else if (status.state == Task::State::Terminated)
 		oss << ",finish_time=" << status.finish_time << ",errmsg=\"\",exit_code=0";
 	else
@@ -163,30 +181,43 @@ void MasterServer::DataState::AddExecutingTask(const std::string& slave_id, cons
 {
 	std::lock_guard<std::mutex> lock_queue(queue_mutex), lock_macs(machine_mutex);
 	JobPtr job = GetJob(job_id);
-	if (!job)
-		return;
+	if (!job) return;
 	TaskPtr task = job->GetTask(task_id);
-	if (!task)
-		return;
+	if (!task) return;
 	MachinePtr mac = GetMachine(slave_id);
 	if (mac) {
 		mac->availables -= task->resources;
 		LOG(INFO) << "Machine " << slave_id << ": " << mac->availables.ToString();
 	}
-
-	std::lock_guard<std::mutex> lock_prog(prog_mutex);
-	if (!progress.isMember(job_id))
-		progress[job_id] = Json::Value(Json::objectValue);
-	progress[job_id][task_id] = 0.0f;
 }
 
-bool MasterServer::DataState::Heartbeat(const std::string& slave_id)
+bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished)
 {
 	std::unique_lock<std::mutex> lock(machine_mutex);
 	MachineMap::iterator it = machines.find(slave_id);
 	if (it == machines.end())
 		return false;
 	it->second->heartbeat = time(NULL);
+	lock.unlock();
+
+	int update_count = updates.size();
+	for (int i = 0; i < update_count; i++) {
+		const Json::Value& t = updates[i];
+		Task::Status status(FromString<Task::State>(t["state"].asCString()));
+		status.progress = t["progress"].asInt();
+		status.exec_tip = t["tiptext"].asString();
+		if (t.isMember("exit_code"))
+			status.exit_code = t["exit_code"].asUInt();
+		if (t.isMember("error_msg"))
+			status.error_msg = t["error_msg"].asString();
+		if (status.IsFinished()) {
+			finished++;
+			status.finish_time = time(NULL);
+			LOG(INFO) << "Task " << t["job_id"].asString() << "." << t["task_id"].asString() << " is finished with exit code "
+				<< status.exit_code << ": " << status.error_msg;
+		}
+		UpdateTaskStatus(t["job_id"].asString(), t["task_id"].asString(), status);
+	}
 	return true;
 }
 

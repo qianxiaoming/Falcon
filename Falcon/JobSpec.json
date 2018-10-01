@@ -125,14 +125,15 @@ POST /cluster/heartbeats
 {
 	"id": "192.168.0.1:36782",
 	"load": 2,
-	"update": [
+	"updates": [
 		{
 			"job_id": dxy73f,
 			"task_id": "1",
 			"state": "Executing",
 			"progress": 75,
 			"tiptext": "Creating new file",
-			"exit_code": 0
+			"exit_code": 0,
+			"error_msg" : ""
 		},
 		{
 			"job_id": dxy73f,

@@ -191,7 +191,7 @@ bool SlaveServer::SetupListenHTTP()
 
 TaskExecInfo::TaskExecInfo()
 	: startup_time(0), out_read_pipe(NULL), out_write_pipe(NULL), err_read_pipe(NULL),
-	  err_write_pipe(NULL), heartbeat(-1), exit_code(-1), exec_progress(0)
+	  err_write_pipe(NULL), heartbeat(-1), is_executing(true), exit_code(0), exec_progress(0)
 {
 	ZeroMemory(&process_info, sizeof(PROCESS_INFORMATION));
 }
@@ -258,7 +258,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 	Json::Value hb_message(Json::objectValue);
 	hb_message["id"] = slave_id;
 	TaskExecInfoMap finished_tasks;
-	Json::Value update(Json::arrayValue);
+	Json::Value updates(Json::arrayValue);
 	do {
 		std::unique_lock<std::mutex> lock_execs(exec_mutex);
 		TaskExecInfoMap::iterator it = exec_tasks.begin();
@@ -273,10 +273,9 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 				v["task_id"] = task->task_id;
 				v["progress"] = task->exec_progress;
 				v["tiptext"] = task->exec_tip;
-				if (task->exit_code == -1) {
+				if (task->is_executing) {
 					v["state"] = ToString(Task::State::Executing);
-					v["exit_code"] = -1;
-					update.append(v);
+					updates.append(v);
 				} else {
 					// this task has finished
 					if (task->exit_code == EXIT_SUCCESS)
@@ -286,20 +285,21 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 					else
 						v["state"] = ToString(Task::State::Aborted);
 					v["exit_code"] = task->exit_code;
+					v["error_msg"] = task->error_msg;
 					finished_tasks.insert(*it);
 					it = exec_tasks.erase(it);
-					update.append(v);
+					updates.append(v);
 					continue;
 				}
 			}
 			it++;
 		}
 		hb_message["load"] = int(exec_tasks.size());
-		hb_message["update"] = update;
+		hb_message["updates"] = updates;
 	} while (false);
 
 	// check if heartbeat must be send
-	if (update.size() == 0 && hb_elapsed < hb_interval)
+	if (updates.size() == 0 && hb_elapsed < hb_interval)
 		hb_elapsed++;  // do nothing, just increase elapsed counter
 	else {
 		// must send heartbeat information
@@ -329,18 +329,30 @@ static void StreamPipe2File(HANDLE pipe, std::ofstream& ofs)
 	}
 }
 
+static int ZipEndline(char* buf, int len)
+{
+	if (len == 0) return 0;
+	char *cur = buf, *start = buf;
+	for (int i = 0; i < len; i++, cur++) {
+		*buf = *cur;
+		if (*buf != '\r')
+			buf++;
+	}
+	*buf = '\0';
+	return int(buf - start);
+}
+
 void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 {
 	// read std error output and save to error file
 	std::thread err_thread([&task]() {
-		char buf[257];
+		char buf[256];
 		while (true) {
 			DWORD read_bytes;
-			memset(buf, 0, 257);
-			LOG(INFO) << "Read stderr pipe...";
+			memset(buf, 0, 256);
 			if (!ReadFile(task->err_read_pipe, buf, 256, &read_bytes, NULL))
 				break;
-			LOG(INFO) << "stderr:" << buf;
+			read_bytes = ZipEndline(buf, int(read_bytes));
 			task->err_file.write(buf, read_bytes);
 		}
 	});
@@ -352,55 +364,55 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 	char* line_buf = line;
 	bool in_endl = false;
 	while (true) {
-		char buf[257] = { 0 };
+		char buf[256] = { 0 };
 		DWORD read_bytes;
-		LOG(INFO) << "Read stdout pipe...";
 		if (!ReadFile(task->out_read_pipe, buf, 256, &read_bytes, NULL))
 			break;
-		LOG(INFO) << "stdout:" << buf;
-		task->out_file.write(buf, read_bytes);
-		//for (int i = 0; i < read_bytes; i++) {
-		//	if (buf[i] == '\n' || buf[i] == '\r') {
-		//		if (in_endl)
-		//			continue;
-		//		if (line[0] != '[') // example: [35%] creating output file
-		//			task->out_file << line << std::endl;
-		//		else {
-		//			// parse progress value and tip string
-		//			if (char* s = strchr(line, '%')) {
-		//				*s = '\0';
-		//				int progress = std::atoi(&line[1]);
-		//				std::string tip = s + 3; // skip ']' and blackspace, could be empty
-		//				std::unique_lock<std::mutex> lock(task->mtx);
-		//				if (task->exec_progress != progress || (!tip.empty() && task->exec_tip != tip)) {
-		//					task->exec_progress = progress;
-		//					task->exec_tip = tip;
-		//					task->heartbeat = -1;
-		//				}
-		//			}
-		//		}
-		//		memset(line, 0, MAX_OUTPUT_LEN);
-		//		line_buf = line;
-		//		in_endl = true;
-		//	} else {
-		//		*line_buf = buf[i];
-		//		line_buf++;
-		//		in_endl = false;
-		//	}
-		//}
+		for (int i = 0; i < read_bytes; i++) {
+			if (buf[i] == '\n' || buf[i] == '\r') {
+				if (in_endl)
+					continue;
+				if (line[0] != '[') // example: [35%] creating output file
+					task->out_file << line << std::endl;
+				else {
+					// parse progress value and tip string
+					if (char* s = strchr(line, '%')) {
+						*s = '\0';
+						int progress = std::atoi(&line[1]);
+						std::string tip = s + 3; // skip ']' and blackspace, could be empty
+						std::unique_lock<std::mutex> lock(task->mtx);
+						if (task->exec_progress != progress || (!tip.empty() && task->exec_tip != tip)) {
+							task->exec_progress = progress;
+							task->exec_tip = tip;
+							task->heartbeat = -1;
+						}
+					}
+				}
+				memset(line, 0, MAX_OUTPUT_LEN);
+				line_buf = line;
+				in_endl = true;
+			} else {
+				*line_buf = buf[i];
+				line_buf++;
+				in_endl = false;
+			}
+		}
 	}
 
 	DWORD exit_code = EXIT_SUCCESS;
 	WaitForSingleObject(task->process_info.hProcess, INFINITE);
 	if (GetExitCodeProcess(task->process_info.hProcess, &exit_code) == FALSE)
-		LOG(ERROR) << "Failed to get process exit code: " << Util::GetLastErrorMessage();
+		LOG(ERROR) << "Failed to get process exit code: " << Util::GetLastErrorMessage(NULL);
 	else
 		LOG(INFO) << "Task " << task->job_id << "." << task->task_id << " is exited with code " << exit_code;
 
 	do {
 		std::unique_lock<std::mutex> lock(task->mtx);
+		task->is_executing = false;
 		task->heartbeat = -1;
-		task->exit_code = (int)exit_code;
+		task->exit_code = exit_code;
+		if (exit_code & 0xC0000000)
+			task->error_msg = "Abort by unhandled exception";
 		task->out_file.close();
 		task->err_file.close();
 		CloseHandle(task->out_read_pipe);
@@ -455,6 +467,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		LOG(INFO) << "Create task local directory " << exec_info->local_dir;
 		if (!boost::filesystem::create_directories(exec_info->local_dir)) {
 			response["state"] = ToString(Task::State::Aborted);
+			response["exit_code"] = EXIT_FAILURE;
 			response["message"] = "Failed to create task local directory " + exec_info->local_dir;
 			LOG(ERROR) << response["message"].asString();
 			return response.toStyledString();
@@ -466,6 +479,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		exec_info->err_file.open(exec_info->err_file_path, std::ios_base::out);
 		if (!exec_info->out_file.is_open() || !exec_info->err_file) {
 			response["state"] = ToString(Task::State::Aborted);
+			response["exit_code"] = EXIT_FAILURE;
 			response["message"] = "Failed to create task stdout/stderr file under task local directory " + exec_info->local_dir;
 			LOG(ERROR) << response["message"].asString();
 			return response.toStyledString();
@@ -484,9 +498,11 @@ struct TasksHandler : public Handler<SlaveServer>
 		LOG(INFO) << "Create stdout/stderr pipe for new task process";
 		if (!CreatePipe(&exec_info->out_read_pipe, &exec_info->out_write_pipe, &stdoutsec, NULL) ||
 			!CreatePipe(&exec_info->err_read_pipe, &exec_info->err_write_pipe, &stderrsec, NULL)) {
-			std::string errmsg = Util::GetLastErrorMessage();
+			int code = 0;
+			std::string errmsg = Util::GetLastErrorMessage(&code);
 			LOG(ERROR) << "Failed to create pipe: " << errmsg;
 			response["state"] = ToString(Task::State::Aborted);
+			response["exit_code"] = code;
 			response["message"] = errmsg;
 			return response.toStyledString();
 		}
@@ -508,37 +524,30 @@ struct TasksHandler : public Handler<SlaveServer>
 			LOG(INFO) << "Task arguments: " << args.get();
 		}
 
-		TCHAR** envs_block = NULL;
+		boost::scoped_array<TCHAR> envs_block;
 		if (!task->exec_envs.empty()) {
 			LOG(INFO) << "Build environment variables block for " << task->exec_envs;
-			std::vector<std::string> env_strs;
-			boost::split(env_strs, task->exec_envs, boost::is_any_of(";"));
-			envs_block = new TCHAR*[env_strs.size()+1];
-			for (size_t i = 0; i < env_strs.size(); i++) {
-				envs_block[i] = new TCHAR[env_strs[i].length() + 1];
-				memset(envs_block[i], 0, sizeof(TCHAR)*(env_strs[i].length() + 1));
-				strcpy(envs_block[i], env_strs[i].c_str());
-			}
-			envs_block[env_strs.size()] = NULL;
+			size_t buf_len = task->exec_envs.length() + 2;
+			envs_block.reset(new TCHAR[buf_len]);
+			memset(envs_block.get(), 0, sizeof(TCHAR)*buf_len);
+			strcpy(envs_block.get(), task->exec_envs.c_str());
+			for (size_t i = 0; i < buf_len; i++)
+				if (envs_block[i] == ';') envs_block[i] = '\0';
 		}
 
 		LOG(INFO) << "Startup new process for command " << task->exec_command;
-		/*if (CreateProcess(task->exec_command.c_str(), args.get(), NULL, NULL, TRUE, NULL, (LPVOID)envs_block,
-			task->work_dir.empty() ? NULL : task->work_dir.c_str(), &startupinfo, &exec_info->process_info) == FALSE) {*/
-		if (CreateProcess("C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", NULL, NULL, NULL, TRUE, NULL, NULL, NULL, &startupinfo, &exec_info->process_info) == FALSE) {
-			response["message"] = Util::GetLastErrorMessage();
+		if (CreateProcess(task->exec_command.c_str(), args.get(), NULL, NULL, TRUE, NULL, (LPVOID)envs_block.get(),
+			task->work_dir.empty() ? NULL : task->work_dir.c_str(), &startupinfo, &exec_info->process_info) == FALSE) {
 			response["state"] = ToString(Task::State::Aborted);
+			int code = 0;
+			response["message"] = Util::GetLastErrorMessage(&code);
+			response["exit_code"] = code;
 		}
 		CloseHandle(exec_info->out_write_pipe);
 		exec_info->out_write_pipe = NULL;
 		CloseHandle(exec_info->err_write_pipe);
 		exec_info->err_write_pipe = NULL;
 
-		if (envs_block) {
-			for (int i = 0; envs_block[i] != NULL; i++)
-				delete[] envs_block[i];
-			delete[] envs_block;
-		}
 		if (FromString<Task::State>(response["state"].asCString()) == Task::State::Aborted) {
 			LOG(ERROR) << "Start process failed: " << response["message"].asString();
 			return response.toStyledString();

@@ -97,11 +97,16 @@ struct Task
 	{
 		Status();
 		Status(State s);
+		bool IsFinished() const;
+
 		State       state;
-		int         exit_code;
-		std::string errmsg;
+		int         progress;
+		std::string exec_tip;
+		uint32_t    exit_code;
+		std::string error_msg;
 		time_t      exec_time;
 		time_t      finish_time;
+		std::string slave_id;
 		std::string machine;
 	};
 

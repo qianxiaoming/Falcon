@@ -331,13 +331,19 @@ std::string ToString(const LabelList& labels)
 }
 
 Task::Status::Status()
-	: state(State::Queued), exit_code(0), exec_time(0), finish_time(0)
+	: state(State::Queued), progress(0), exit_code(0), exec_time(0), finish_time(0)
 {
 }
 
 Task::Status::Status(State s)
 	: state(s), exit_code(0), exec_time(0), finish_time(0)
 {
+}
+
+bool Task::Status::IsFinished() const
+{
+	return state == Task::State::Completed || state == Task::State::Failed ||
+		state == Task::State::Aborted || state == Task::State::Terminated;
 }
 
 Task::Task(const std::string& job_id, const std::string& task_id, std::string name)

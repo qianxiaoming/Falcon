@@ -30,7 +30,7 @@ struct MasterConfig
 	int dispatch_try_times;
 };
 
-enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin };
+enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin, TaskFinished };
 typedef ::moodycamel::BlockingConcurrentQueue<ScheduleEvent> ScheduleEventQueue;
 
 struct DispatchTask
@@ -118,16 +118,13 @@ public:
 		std::mutex machine_mutex;
 		MachineMap machines;
 
-		std::mutex prog_mutex;
-		Json::Value progress;
-
 		JobPtr GetJob(const std::string& job_id) const;
-		MachinePtr GetMachine(const std::string& ip) const;
+		MachinePtr GetMachine(const std::string& slave_id) const;
 		bool InsertNewJob(const std::string& job_id, const std::string& name, Job::Type type, const Json::Value& value, std::string& err);
 		std::string RegisterMachine(const std::string& name, const std::string& addr, uint16_t port, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
 		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status);
 		void AddExecutingTask(const std::string& slave_id, const std::string& job_id, const std::string& task_id);
-		bool Heartbeat(const std::string& slave_id);
+		bool Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished);
 	};
 	DataState data_state;
 

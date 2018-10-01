@@ -84,7 +84,7 @@ std::string Util::UUID()
 	return oss.str();
 }
 
-std::string Util::GetLastErrorMessage()
+std::string Util::GetLastErrorMessage(int* code)
 {
 	DWORD dw = GetLastError();
 	LPVOID lpMsgBuf = NULL;
@@ -97,9 +97,12 @@ std::string Util::GetLastErrorMessage()
 		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 		(LPTSTR)&lpMsgBuf,
 		0, NULL);
-	std::string msg = (LPTSTR)lpMsgBuf;
+	std::string errmsg = (LPTSTR)lpMsgBuf;
 	LocalFree(lpMsgBuf);
-	return msg;
+
+	if (code)
+		*code = int(dw);
+	return errmsg;
 }
 
 int SqliteDB::Execute(const std::string& sql, std::string& err)

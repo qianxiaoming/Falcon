@@ -27,7 +27,7 @@ struct Util
 
 	static void GetGPUInfo(std::string& gpu_name, int& num_gpus, int& gpu_cores);
 
-	static std::string Util::GetLastErrorMessage();
+	static std::string GetLastErrorMessage(int* code);
 };
 
 class HttpUtil

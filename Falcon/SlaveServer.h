@@ -37,7 +37,9 @@ struct TaskExecInfo
 
 	std::mutex mtx;
 	int heartbeat;
-	int exit_code;
+	bool is_executing;
+	uint32_t exit_code;
+	std::string error_msg;
 	int exec_progress;
 	std::string exec_tip;
 };
