@@ -145,7 +145,8 @@ void HandleRequest(const std::string& remote, http::request<Body, http::basic_fi
 
 	// Make sure we can handle the method
 	if (req.method() != http::verb::get &&
-		req.method() != http::verb::post)
+		req.method() != http::verb::post &&
+		req.method() != http::verb::delete_)
 		return send(bad_request("Unsupported HTTP-method"));
 
 	if (req.target().empty())

@@ -394,7 +394,7 @@ Json::Value Task::ToJson() const
 }
 
 Job::Job(std::string id, std::string name, Type type)
-	: job_id(id), job_name(name), job_type(type), job_priority(50),
+	: job_id(id), job_name(name), job_type(type), job_priority(50), is_schedulable(true),
 	  submit_time(0), exec_time(0), finish_time(0), job_state(Job::State::Queued)
 {
 }
@@ -455,7 +455,6 @@ TaskPtr BatchJob::GetTask(const std::string& id) const
 
 void BatchJob::GetTaskList(TaskList& tasks, TaskStatePred pred) const
 {
-	tasks.clear();
 	if (pred.empty())
 		tasks.assign(exec_tasks.begin(), exec_tasks.end());
 	else

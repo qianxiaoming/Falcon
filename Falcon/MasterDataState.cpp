@@ -222,4 +222,26 @@ bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json:
 	return true;
 }
 
+void MasterServer::DataState::GetExecutingTasks(TaskList& tasks, const std::string& job_id)
+{
+	std::lock_guard<std::mutex> lock_queue(queue_mutex);
+	for (JobPtr& job : job_queue) {
+		if (job->job_state != Job::State::Executing)
+			continue;
+		if (!job_id.empty() && job->job_id != job_id)
+			continue;
+		job->GetTaskList(tasks, [](const TaskPtr& t) { return t->task_status.state == Task::State::Executing; });
+	}
+}
+
+bool MasterServer::DataState::SetJobSchedulable(const std::string& job_id, bool schedulable)
+{
+	std::lock_guard<std::mutex> lock_queue(queue_mutex);
+	JobPtr job = GetJob(job_id);
+	if (!job)
+		return false;
+	job->SetSchedulable(schedulable);
+	return true;
+}
+
 }

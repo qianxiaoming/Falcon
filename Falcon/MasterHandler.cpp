@@ -57,7 +57,49 @@ struct JobsHandler : public Handler<MasterServer>
 		server->NotifyScheduleEvent(ScheduleEvent::JobSubmit);
 
 		// reply the client with new job id
-		return job_id;
+		Json::Value response(Json::objectValue);
+		response["status"] = "ok";
+		response["job_id"] = job_id;
+		return response.toStyledString();
+	}
+	// terminate a job
+	virtual std::string Delete(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		Json::Value value;
+		if (!Util::ParseJsonFromString(body, value))
+			return "Illegal json body for terminating job";
+		std::string job_id = value["job_id"].asString();
+		LOG(INFO) << "Termination for job \"" << job_id << "\" is request from " << remote;
+
+		Json::Value response(Json::objectValue);
+		response["status"] = "ok";
+
+		if (!server->State().SetJobSchedulable(job_id, false))
+			return response.toStyledString();
+		else {
+			TaskList tasks;
+			server->State().GetExecutingTasks(tasks, job_id);
+			int terminated_tasks = 0;
+			for (TaskPtr& task : tasks) {
+				Json::Value v(Json::objectValue);
+				v["job_id"] = task->job_id;
+				v["task_id"] = task->task_id;
+				std::string result = HttpUtil::Delete(boost::str(boost::format("%s/tasks") % task->task_status.slave_id), v.toStyledString());
+				v.clear();
+				if (!Util::ParseJsonFromString(result, v))
+					LOG(INFO) << "Terminate task " << task->job_id << "." << task->task_id << ": " << result;
+				else {
+					if (v.isMember("error"))
+						LOG(INFO) << "Failed to terminate task " << task->job_id << "." << task->task_id << ": " << v["error"].asString();
+					else {
+						LOG(INFO) << "Terminate task " << task->job_id << "." << task->task_id << ": Success";
+						terminated_tasks++;
+					}
+				}
+			}
+			response["terminated"] = terminated_tasks;
+		}
+		return response.toStyledString();
 	}
 };
 
@@ -212,6 +254,8 @@ static std::string HandleHttpRequest(
 				return handler->Get(server, remote_addr, api_target, params, status);
 			else if (verb == http::verb::post)
 				return handler->Post(server, remote_addr, api_target, params, body, status);
+			else if (verb == http::verb::delete_)
+				return handler->Delete(server, remote_addr, api_target, params, body, status);
 			else {
 				status = http::status::bad_request;
 				return "Unsupported HTTP-method";

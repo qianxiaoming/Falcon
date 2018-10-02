@@ -251,8 +251,8 @@ std::string HttpUtil::Post(const std::string& url, const std::string& content)
 			ret["error"] = curl_easy_strerror(res);
 			result = ret.toStyledString();
 		}
-		curl_easy_cleanup(curl);
 		curl_slist_free_all(headers);
+		curl_easy_cleanup(curl);
 	}
 
 	return result;
@@ -293,11 +293,18 @@ std::string HttpUtil::Delete(const std::string& url, const std::string& content)
 	if (curl) {
 		curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 		curl_easy_setopt(curl, CURLOPT_HEADER, 0);
-		if (!content.empty())
-			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, content.c_str());
 		curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
 		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpWriter);
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
+
+		struct curl_slist *headers = NULL;
+		if (!content.empty()) {
+			headers = curl_slist_append(headers, "Accept:application/json");
+			headers = curl_slist_append(headers, "Content-Type:application/json");
+			headers = curl_slist_append(headers, "charset:utf-8");
+			curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+			curl_easy_setopt(curl, CURLOPT_POSTFIELDS, content.c_str());
+		}
 
 		CURLcode res = curl_easy_perform(curl);
 		if (res != CURLE_OK)
@@ -308,6 +315,7 @@ std::string HttpUtil::Delete(const std::string& url, const std::string& content)
 			ret["error"] = curl_easy_strerror(res);
 			result = ret.toStyledString();
 		}
+		curl_slist_free_all(headers);
 		curl_easy_cleanup(curl);
 	}
 	return result;

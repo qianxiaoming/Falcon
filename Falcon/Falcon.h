@@ -141,6 +141,8 @@ struct Job
 
 	virtual ~Job() { }
 
+	bool IsSchedulable() const { return is_schedulable; }
+	void SetSchedulable(bool schedulable) { is_schedulable = schedulable; }
 	virtual void Assign(const Json::Value& value);
 	virtual TaskPtr GetTask(const std::string& id) const = 0;
 	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const = 0;
@@ -154,6 +156,7 @@ struct Job
 	int         job_priority;
 	std::string work_dir;
 	ResourceSet resources;    // default resources for tasks
+	bool        is_schedulable;
 	
 	time_t      submit_time;
 	time_t      exec_time;

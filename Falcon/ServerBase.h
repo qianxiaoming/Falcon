@@ -44,6 +44,11 @@ struct Handler
 		status = http::status::bad_request;
 		return "Illegal request-target";
 	}
+	virtual std::string Delete(ServerType* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		status = http::status::bad_request;
+		return "Illegal request-target";
+	}
 };
 
 }

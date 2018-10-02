@@ -78,6 +78,8 @@ public:
 
 	void AddExecutingTask(TaskExecInfoPtr task);
 
+	bool TerminateTask(const std::string& job_id, const std::string& task_id, std::string& errmsg);
+
 	std::string HandleMasterRequest(
 		const std::string& remote_addr,
 		http::verb verb,

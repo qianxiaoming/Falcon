@@ -240,6 +240,8 @@ std::string SlaveServer::HandleMasterRequest(
 			return handler->Get(this, remote_addr, api_target, params, status);
 		else if (verb == http::verb::post)
 			return handler->Post(this, remote_addr, api_target, params, body, status);
+		else if (verb == http::verb::delete_)
+			return handler->Delete(this, remote_addr, api_target, params, body, status);
 		else {
 			status = http::status::bad_request;
 			return "Unsupported HTTP-method";
@@ -282,6 +284,8 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 						v["state"] = ToString(Task::State::Completed);
 					else if(task->exit_code == EXIT_FAILURE)
 						v["state"] = ToString(Task::State::Failed);
+					else if(task->exit_code == ERROR_PROCESS_ABORTED)
+						v["state"] = ToString(Task::State::Terminated);
 					else
 						v["state"] = ToString(Task::State::Aborted);
 					v["exit_code"] = task->exit_code;
@@ -316,32 +320,6 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 	}
 }
 
-static void StreamPipe2File(HANDLE pipe, std::ofstream& ofs)
-{
-	const int PIPE_READ_SIZE = 256;
-	char buf[PIPE_READ_SIZE];
-	while (true) {
-		DWORD read_bytes;
-		memset(buf, 0, PIPE_READ_SIZE);
-		if (!ReadFile(pipe, buf, PIPE_READ_SIZE, &read_bytes, NULL))
-			break;
-		ofs.write(buf, read_bytes);
-	}
-}
-
-static int ZipEndline(char* buf, int len)
-{
-	if (len == 0) return 0;
-	char *cur = buf, *start = buf;
-	for (int i = 0; i < len; i++, cur++) {
-		*buf = *cur;
-		if (*buf != '\r')
-			buf++;
-	}
-	*buf = '\0';
-	return int(buf - start);
-}
-
 void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 {
 	// read std error output and save to error file
@@ -352,7 +330,16 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 			memset(buf, 0, 256);
 			if (!ReadFile(task->err_read_pipe, buf, 256, &read_bytes, NULL))
 				break;
-			read_bytes = ZipEndline(buf, int(read_bytes));
+			if (read_bytes > 0) {
+				char *cur = buf, *pos = buf;
+				for (DWORD i = 0; i < read_bytes; i++, cur++) {
+					*pos = *cur;
+					if (*pos != '\r')
+						pos++;
+				}
+				*pos = '\0';
+				read_bytes = DWORD(pos - buf);
+			}
 			task->err_file.write(buf, read_bytes);
 		}
 	});
@@ -411,8 +398,12 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 		task->is_executing = false;
 		task->heartbeat = -1;
 		task->exit_code = exit_code;
-		if (exit_code & 0xC0000000)
+		if (exit_code & 0xC0000000) {
 			task->error_msg = "Abort by unhandled exception";
+			if (exit_code == 0xC0000005)
+				task->error_msg += ": Access violation";
+		} else if (exit_code == ERROR_PROCESS_ABORTED)
+			task->error_msg = "Terminated by user";
 		task->out_file.close();
 		task->err_file.close();
 		CloseHandle(task->out_read_pipe);
@@ -421,22 +412,21 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 		task->err_read_pipe = NULL;
 	} while (false);
 
-	// transfer stdout and stderr files to cluster master
-	uintmax_t out_size = boost::filesystem::file_size(task->out_file_path);
-	if (out_size != 0) {
-		std::string file_name = boost::filesystem::path(task->out_file_path).filename().string();
-		std::string url = boost::str(boost::format("%s/cluster/logs?name=%s&job_id=%s&task_id=%s")
-			% master_addr % file_name % task->job_id % task->task_id);
-		if (!HttpUtil::UploadFile(url, task->out_file_path, out_size))
-			LOG(ERROR) << "Failed to update task stdout file " << task->out_file_path;
-	}
-	uintmax_t err_size = boost::filesystem::file_size(task->err_file_path);
-	if (err_size != 0) {
-		std::string file_name = boost::filesystem::path(task->err_file_path).filename().string();
-		std::string url = boost::str(boost::format("%s/cluster/logs?name=%s&job_id=%s&task_id=%s")
-			% master_addr % file_name % task->job_id % task->task_id);
-		if (!HttpUtil::UploadFile(url, task->err_file_path, err_size))
-			LOG(ERROR) << "Failed to update task stderr file " << task->err_file_path;
+	if (exit_code != ERROR_PROCESS_ABORTED) {
+		// transfer stdout and stderr files to cluster master
+		auto UploadTaskLogFile = [&task](const std::string& file_path, const std::string& master_addr) {
+			uintmax_t out_size = boost::filesystem::file_size(file_path);
+			if (out_size != 0) {
+				LOG(INFO) << "Upload log file for task " << task->job_id << "." << task->task_id << ": " << file_path;
+				std::string file_name = boost::filesystem::path(file_path).filename().string();
+				std::string url = boost::str(boost::format("%s/cluster/logs?name=%s&job_id=%s&task_id=%s")
+					% master_addr % file_name % task->job_id % task->task_id);
+				if (!HttpUtil::UploadFile(url, file_path, out_size))
+					LOG(ERROR) << "Failed to update task log file " << file_path;
+			}
+		};
+		UploadTaskLogFile(task->out_file_path, master_addr);
+		UploadTaskLogFile(task->err_file_path, master_addr);
 	}
 }
 
@@ -446,6 +436,21 @@ void SlaveServer::AddExecutingTask(TaskExecInfoPtr task)
 	exec_tasks.insert(std::make_pair(task->job_id + "." + task->task_id, task));
 	std::thread task_thread(boost::bind(&SlaveServer::MonitorTask, this, task));
 	task_thread.detach();
+}
+
+bool SlaveServer::TerminateTask(const std::string& job_id, const std::string& task_id, std::string& errmsg)
+{
+	std::unique_lock<std::mutex> lock(exec_mutex);
+	TaskExecInfoMap::iterator it = exec_tasks.find(job_id + "." + task_id);
+	if (it == exec_tasks.end()) {
+		errmsg = "task not found";
+		return false;
+	}
+	if (!TerminateProcess(it->second->process_info.hProcess, ERROR_PROCESS_ABORTED)) {
+		errmsg = Util::GetLastErrorMessage(NULL);
+		return false;
+	}
+	return true;
 }
 
 namespace handler {
@@ -459,7 +464,7 @@ struct TasksHandler : public Handler<SlaveServer>
 	{
 		Json::Value value;
 		if (!Util::ParseJsonFromString(body, value))
-			return "Illegal json body for registering slave";
+			return "Illegal json body for executing task";
 		LOG(INFO) << "New task(" << value["job_id"].asString() << "." << value["task_id"].asString() << ") received from master " << remote;
 
 		TaskPtr task(new Task(value["job_id"].asString(), value["task_id"].asString(), value["content"]["name"].asString()));
@@ -566,6 +571,23 @@ struct TasksHandler : public Handler<SlaveServer>
 		exec_info->startup_time = time(NULL);
 
 		server->AddExecutingTask(exec_info);
+		return response.toStyledString();
+	}
+
+	virtual std::string Delete(SlaveServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		Json::Value value;
+		if (!Util::ParseJsonFromString(body, value))
+			return "Illegal json body for terminating task";
+		std::string job_id = value["job_id"].asString(), task_id = value["task_id"].asString();
+		LOG(INFO) << "Request for terminating task(" << job_id << "." << task_id << ") is received from master " << remote;
+
+		Json::Value response(Json::objectValue);
+		std::string errmsg;
+		if (server->TerminateTask(job_id, task_id, errmsg))
+			response["status"] = "ok";
+		else
+			response["error"] = errmsg;
 		return response.toStyledString();
 	}
 };

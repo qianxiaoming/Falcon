@@ -145,3 +145,16 @@ POST /cluster/heartbeats
 		}
 	]
 }
+
+5. Terminate job
+DELETE /api/v1/jobs
+{
+	"job_id": "ekj8lx"
+}
+
+6. Terminate task
+DELETE /tasks
+{
+	"job_id": "ekj8lx",
+	"task_id": "1"
+}
