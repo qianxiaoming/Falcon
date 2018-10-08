@@ -47,7 +47,7 @@ struct JobsHandler : public Handler<MasterServer>
 		LOG(INFO) << "  Job local directory is " << job_dir;
 
 		// save new job into database
-		if (!server->State().InsertNewJob(job_id, value["name"].asString(), FromString<Job::Type>(value["type"].asCString()), value, err)) {
+		if (!server->State().InsertNewJob(job_id, value["name"].asString(), FromString<JobType>(value["type"].asCString()), value, err)) {
 			boost::filesystem::remove_all(job_dir, ec);
 			boost::filesystem::remove(job_dir, ec);
 			return err;
@@ -99,6 +99,18 @@ struct JobsHandler : public Handler<MasterServer>
 			}
 			response["terminated"] = terminated_tasks;
 		}
+		return response.toStyledString();
+	}
+};
+
+struct HealthzHandler : public Handler<MasterServer>
+{
+	// health check
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
+	{
+		Json::Value response(Json::objectValue);
+		response["status"] = "ok";
+		response["name"]   = server->GetName();
 		return response.toStyledString();
 	}
 };
@@ -219,6 +231,7 @@ void MasterServer::SetupAPIHandler()
 {
 	static MasterAPI v1;
 	v1.RegisterHandler("/jobs", new handler::api::JobsHandler());
+	v1.RegisterHandler("/healthz", new handler::api::HealthzHandler());
 	master_api_table["/api/v1/"] = &v1;
 
 	static MasterAPI cluster;

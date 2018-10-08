@@ -22,14 +22,14 @@ MachinePtr MasterServer::DataState::GetMachine(const std::string& slave_id) cons
 	return it->second;
 }
 
-bool MasterServer::DataState::InsertNewJob(const std::string& job_id, const std::string& name, Job::Type type, const Json::Value& value, std::string& err)
+bool MasterServer::DataState::InsertNewJob(const std::string& job_id, const std::string& name, JobType type, const Json::Value& value, std::string& err)
 {
 	// save attributes of new job into database
 	time_t submit_time = time(NULL);
 	SqliteDB db(master_db, &db_mutex);
 	std::ostringstream oss;
 	oss << "insert into Job(id,name,type,submit_time,state) values('" << job_id << "','" << name << "','"
-		<< ToString(type) << "'," << submit_time << ",'" << ToString(Job::State::Queued) << "')";
+		<< ToString(type) << "'," << submit_time << ",'" << ToString(JobState::Queued) << "')";
 	if (db.Execute(oss.str(), err) != SQLITE_OK) {
 		err = "Failed to write new job into database: " + err;
 		return false;
@@ -37,7 +37,7 @@ bool MasterServer::DataState::InsertNewJob(const std::string& job_id, const std:
 
 	// create job object and add it to queue
 	JobPtr job;
-	if (type == Job::Type::Batch)
+	if (type == JobType::Batch)
 		job.reset(new BatchJob(job_id, name));
 	else
 		job.reset(new DAGJob(job_id, name));
@@ -78,17 +78,17 @@ std::string MasterServer::DataState::RegisterMachine(const std::string& name, co
 	mac->cpu_frequency = cpu_freq;
 	mac->resources = resources;
 	mac->availables = resources;
-	mac->state = Machine::State::Online;
+	mac->state = MachineState::Online;
 	mac->online = time(NULL);
 	mac->heartbeat = mac->online;
 	machines[mac->id] = mac;
 	return mac->id;
 }
 
-bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status)
+bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const TaskStatus& status)
 {
 	JobPtr job;
-	Job::State old_state = Job::State::Queued, new_state = Job::State::Queued;
+	JobState old_state = JobState::Queued, new_state = JobState::Queued;
 	if (!job) {
 		std::lock_guard<std::mutex> lock(queue_mutex);
 		job = GetJob(job_id);
@@ -99,7 +99,7 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 
 		if (TaskPtr task = job->GetTask(task_id)) {
 			task->task_status.state = status.state;
-			if (status.state == Task::State::Executing) {
+			if (status.state == TaskState::Executing) {
 				if (status.exec_time > 0)
 					task->task_status.exec_time = status.exec_time;
 				if (!status.machine.empty())
@@ -110,11 +110,11 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 				if (!status.exec_tip.empty())
 					task->task_status.exec_tip = status.exec_tip;
 			}
-			else if (status.state == Task::State::Completed || status.state == Task::State::Failed) {
+			else if (status.state == TaskState::Completed || status.state == TaskState::Failed) {
 				task->task_status.finish_time = status.finish_time;
 				task->task_status.exit_code = status.exit_code;
 			}
-			else if (status.state == Task::State::Aborted) {
+			else if (status.state == TaskState::Aborted) {
 				if (!status.machine.empty())
 					task->task_status.machine = status.machine;
 				if (!status.slave_id.empty())
@@ -123,7 +123,7 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 				task->task_status.exit_code = status.exit_code;
 				task->task_status.error_msg = status.error_msg;
 			}
-			else if (status.state == Task::State::Terminated)
+			else if (status.state == TaskState::Terminated)
 				task->task_status.finish_time = status.finish_time;
 
 			if (status.IsFinished()) {
@@ -135,7 +135,7 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 		}
 
 		// update job state according to tasks
-		if (status.state != Task::State::Dispatching) {
+		if (status.state != TaskState::Dispatching) {
 			old_state = job->job_state;
 			new_state = job->UpdateCurrentState();
 			if (old_state != new_state)
@@ -146,13 +146,13 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 	SqliteDB db(master_db, &db_mutex);
 	std::ostringstream oss;
 	oss << "update Task set state=\"" << ToString(status.state) << "\"";
-	if (status.state == Task::State::Executing)
+	if (status.state == TaskState::Executing)
 		oss << ",exec_time=" << status.exec_time << ",finish_time=0,exit_code=0,errmsg=\"\",machine=\"" << status.machine << "\"";
-	else if (status.state == Task::State::Completed || status.state == Task::State::Failed)
+	else if (status.state == TaskState::Completed || status.state == TaskState::Failed)
 		oss << ",finish_time=" << status.finish_time << ",exit_code=" << status.exit_code << ",errmsg=\"\"";
-	else if (status.state == Task::State::Aborted)
+	else if (status.state == TaskState::Aborted)
 		oss << ",finish_time=" << status.finish_time << ",errmsg=\"" << status.error_msg << "\",exit_code=0,machine=\"" << status.machine << "\"";
-	else if (status.state == Task::State::Terminated)
+	else if (status.state == TaskState::Terminated)
 		oss << ",finish_time=" << status.finish_time << ",errmsg=\"\",exit_code=0";
 	else
 		oss << ",exec_time=0,finish_time=0,exit_code=0,errmsg=\"\",machine=\"\"";
@@ -166,9 +166,9 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 	if (old_state != new_state) {
 		LOG(INFO) << "The state of job " << job_id << " is set to " << ToString(new_state);
 		std::string sql;
-		if (new_state == Job::State::Executing)
+		if (new_state == JobState::Executing)
 			sql = boost::str(boost::format("update Job set state=\"%s\",exec_time=%d where id=\"%s\"") % ToString(new_state) % status.exec_time % job_id);
-		else if (new_state == Job::State::Completed || new_state == Job::State::Failed || new_state == Job::State::Terminated)
+		else if (new_state == JobState::Completed || new_state == JobState::Failed || new_state == JobState::Terminated)
 			sql = boost::str(boost::format("update Job set state=\"%s\",finish_time=%d where id=\"%s\"") % ToString(new_state) % status.finish_time % job_id);
 		else
 			sql = boost::str(boost::format("update Job set state=\"%s\" where id=\"%s\"") % ToString(new_state) % job_id);
@@ -204,7 +204,7 @@ bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json:
 	int update_count = updates.size();
 	for (int i = 0; i < update_count; i++) {
 		const Json::Value& t = updates[i];
-		Task::Status status(FromString<Task::State>(t["state"].asCString()));
+		TaskStatus status(FromString<TaskState>(t["state"].asCString()));
 		status.progress = t["progress"].asInt();
 		status.exec_tip = t["tiptext"].asString();
 		if (t.isMember("exit_code"))
@@ -226,11 +226,11 @@ void MasterServer::DataState::GetExecutingTasks(TaskList& tasks, const std::stri
 {
 	std::lock_guard<std::mutex> lock_queue(queue_mutex);
 	for (JobPtr& job : job_queue) {
-		if (job->job_state != Job::State::Executing)
+		if (job->job_state != JobState::Executing)
 			continue;
 		if (!job_id.empty() && job->job_id != job_id)
 			continue;
-		job->GetTaskList(tasks, [](const TaskPtr& t) { return t->task_status.state == Task::State::Executing; });
+		job->GetTaskList(tasks, [](const TaskPtr& t) { return t->task_status.state == TaskState::Executing; });
 	}
 }
 

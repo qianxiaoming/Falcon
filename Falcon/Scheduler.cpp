@@ -22,11 +22,11 @@ Scheduler::Table Scheduler::ScheduleTasks()
 		std::lock_guard<std::mutex> lock_job(state.queue_mutex);
 		std::copy_if(state.job_queue.begin(), state.job_queue.end(), std::back_inserter(jobs),
 			[](const JobPtr& job) { return job->IsSchedulable() && 
-			(job->job_state == Job::State::Queued || job->job_state == Job::State::Executing); });
+			(job->job_state == JobState::Queued || job->job_state == JobState::Executing); });
 		
 		std::lock_guard<std::mutex> lock_mac(state.machine_mutex);
 		for (const auto& mac : state.machines) {
-			if (mac.second->state == Machine::State::Online)
+			if (mac.second->state == MachineState::Online)
 				machines.push_back(*mac.second);
 		}
 	} while (false);
@@ -51,7 +51,7 @@ Scheduler::Table Scheduler::ScheduleTasks()
 			if (!job)
 				continue;
 			sched_tasks.clear();
-			job->GetTaskList(sched_tasks, [](const TaskPtr& t) { return t->task_status.state == Task::State::Queued; });
+			job->GetTaskList(sched_tasks, [](const TaskPtr& t) { return t->task_status.state == TaskState::Queued; });
 			if (!sched_tasks.empty()) {
 				sched_job = job;
 				jobs.erase(it);

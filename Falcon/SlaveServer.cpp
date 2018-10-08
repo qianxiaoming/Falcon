@@ -276,18 +276,18 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 				v["progress"] = task->exec_progress;
 				v["tiptext"] = task->exec_tip;
 				if (task->is_executing) {
-					v["state"] = ToString(Task::State::Executing);
+					v["state"] = ToString(TaskState::Executing);
 					updates.append(v);
 				} else {
 					// this task has finished
 					if (task->exit_code == EXIT_SUCCESS)
-						v["state"] = ToString(Task::State::Completed);
+						v["state"] = ToString(TaskState::Completed);
 					else if(task->exit_code == EXIT_FAILURE)
-						v["state"] = ToString(Task::State::Failed);
+						v["state"] = ToString(TaskState::Failed);
 					else if(task->exit_code == ERROR_PROCESS_ABORTED)
-						v["state"] = ToString(Task::State::Terminated);
+						v["state"] = ToString(TaskState::Terminated);
 					else
-						v["state"] = ToString(Task::State::Aborted);
+						v["state"] = ToString(TaskState::Aborted);
 					v["exit_code"] = task->exit_code;
 					v["error_msg"] = task->error_msg;
 					finished_tasks.insert(*it);
@@ -307,11 +307,15 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 		hb_elapsed++;  // do nothing, just increase elapsed counter
 	else {
 		// must send heartbeat information
+		DLOG(INFO) << "Sending heartbeat to master " << master_addr << " with " << hb_message["updates"].size() << " updates...";
 		hb_elapsed = 0;
 		std::string result = HttpUtil::Post(master_addr + "/cluster/heartbeats", hb_message.toStyledString());
 		Json::Value response;
 		if (!Util::ParseJsonFromString(result, response) || response.isMember("error")) {
 			// TODO: save finished tasks into local file
+			LOG(WARNING) << "Failed to send heartbeat to master " << master_addr << ": " << (response.isNull() ? result : Util::JsonToString(response));
+		} else {
+			DLOG(INFO) << "Success: " << Util::JsonToString(response);
 		}
 	}
 	if (!IsStopped()) {
@@ -471,7 +475,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		task->Assign(value["content"], nullptr);
 
 		Json::Value response(Json::objectValue);
-		response["state"] = ToString(Task::State::Executing);
+		response["state"] = ToString(TaskState::Executing);
 		response["time"] = time(NULL);
 		response["machine"] = server->GetHostName();
 
@@ -481,7 +485,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		exec_info->local_dir = boost::str(boost::format("%s/%s/%s") % server->GetTaskDir() % task->job_id % task->task_id);
 		LOG(INFO) << "Create task local directory " << exec_info->local_dir;
 		if (!boost::filesystem::create_directories(exec_info->local_dir)) {
-			response["state"] = ToString(Task::State::Aborted);
+			response["state"] = ToString(TaskState::Aborted);
 			response["exit_code"] = EXIT_FAILURE;
 			response["message"] = "Failed to create task local directory " + exec_info->local_dir;
 			LOG(ERROR) << response["message"].asString();
@@ -493,7 +497,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		exec_info->err_file_path = boost::str(boost::format("%s/%s.err") % exec_info->local_dir % task->task_id);
 		exec_info->err_file.open(exec_info->err_file_path, std::ios_base::out);
 		if (!exec_info->out_file.is_open() || !exec_info->err_file) {
-			response["state"] = ToString(Task::State::Aborted);
+			response["state"] = ToString(TaskState::Aborted);
 			response["exit_code"] = EXIT_FAILURE;
 			response["message"] = "Failed to create task stdout/stderr file under task local directory " + exec_info->local_dir;
 			LOG(ERROR) << response["message"].asString();
@@ -516,7 +520,7 @@ struct TasksHandler : public Handler<SlaveServer>
 			int code = 0;
 			std::string errmsg = Util::GetLastErrorMessage(&code);
 			LOG(ERROR) << "Failed to create pipe: " << errmsg;
-			response["state"] = ToString(Task::State::Aborted);
+			response["state"] = ToString(TaskState::Aborted);
 			response["exit_code"] = code;
 			response["message"] = errmsg;
 			return response.toStyledString();
@@ -553,7 +557,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		LOG(INFO) << "Startup new process for command " << task->exec_command;
 		if (CreateProcess(task->exec_command.c_str(), args.get(), NULL, NULL, TRUE, NULL, (LPVOID)envs_block.get(),
 			task->work_dir.empty() ? NULL : task->work_dir.c_str(), &startupinfo, &exec_info->process_info) == FALSE) {
-			response["state"] = ToString(Task::State::Aborted);
+			response["state"] = ToString(TaskState::Aborted);
 			int code = 0;
 			response["message"] = Util::GetLastErrorMessage(&code);
 			response["exit_code"] = code;
@@ -563,7 +567,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		CloseHandle(exec_info->err_write_pipe);
 		exec_info->err_write_pipe = NULL;
 
-		if (FromString<Task::State>(response["state"].asCString()) == Task::State::Aborted) {
+		if (FromString<TaskState>(response["state"].asCString()) == TaskState::Aborted) {
 			LOG(ERROR) << "Start process failed: " << response["message"].asString();
 			return response.toStyledString();
 		}

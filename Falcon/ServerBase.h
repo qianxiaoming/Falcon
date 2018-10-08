@@ -3,6 +3,7 @@
 
 #include <boost/beast/core.hpp>
 #include <boost/beast/http.hpp>
+#include "HttpUtil.h"
 
 namespace falcon {
 
@@ -29,7 +30,6 @@ protected:
 	std::atomic<bool> is_stopped;
 };
 
-typedef std::map<std::string, std::string> URLParamMap;
 template <typename ServerType>
 struct Handler
 {

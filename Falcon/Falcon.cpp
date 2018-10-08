@@ -3,22 +3,22 @@
 
 namespace falcon {
 
-const char* ToString(Task::State state)
+const char* ToString(TaskState state)
 {
 	switch (state) {
-	case Task::State::Queued:
+	case TaskState::Queued:
 		return "Queued";
-	case Task::State::Dispatching:
+	case TaskState::Dispatching:
 		return "Dispatching";
-	case Task::State::Executing:
+	case TaskState::Executing:
 		return "Executing";
-	case Task::State::Completed:
+	case TaskState::Completed:
 		return "Completed";
-	case Task::State::Failed:
+	case TaskState::Failed:
 		return "Failed";
-	case Task::State::Aborted:
+	case TaskState::Aborted:
 		return "Aborted";
-	case Task::State::Terminated:
+	case TaskState::Terminated:
 		return "Terminated";
 	default:
 		assert(false);
@@ -26,12 +26,12 @@ const char* ToString(Task::State state)
 	return "";
 }
 
-const char* ToString(Job::Type type)
+const char* ToString(JobType type)
 {
 	switch (type) {
-	case Job::Type::Batch:
+	case JobType::Batch:
 		return "Batch";
-	case Job::Type::DAG:
+	case JobType::DAG:
 		return "DAG";
 	default:
 		assert(false);
@@ -39,22 +39,22 @@ const char* ToString(Job::Type type)
 	return "";
 }
 
-const char* ToString(Job::State state)
+const char* ToString(JobState state)
 {
 	switch (state) {
-	case Job::State::Queued:
+	case JobState::Queued:
 		return "Queued";
-	case Job::State::Waiting:
+	case JobState::Waiting:
 		return "Waiting";
-	case Job::State::Executing:
+	case JobState::Executing:
 		return "Executing";
-	case Job::State::Halted:
+	case JobState::Halted:
 		return "Halted";
-	case Job::State::Completed:
+	case JobState::Completed:
 		return "Completed";
-	case Job::State::Failed:
+	case JobState::Failed:
 		return "Failed";
-	case Job::State::Terminated:
+	case JobState::Terminated:
 		return "Terminated";
 	default:
 		assert(false);
@@ -63,49 +63,49 @@ const char* ToString(Job::State state)
 }
 
 template <>
-Job::Type FromString(const char* type)
+JobType FromString(const char* type)
 {
 	if (strcmp(type, "Batch") == 0)
-		return Job::Type::Batch;
-	return Job::Type::DAG;
+		return JobType::Batch;
+	return JobType::DAG;
 }
 
 template <>
-Job::State FromString(const char* state)
+JobState FromString(const char* state)
 {
 	if (strcmp(state, "Queued") == 0)
-		return Job::State::Queued;
+		return JobState::Queued;
 	if (strcmp(state, "Waiting") == 0)
-		return Job::State::Waiting;
+		return JobState::Waiting;
 	if (strcmp(state, "Executing") == 0)
-		return Job::State::Executing;
+		return JobState::Executing;
 	if (strcmp(state, "Halted") == 0)
-		return Job::State::Halted;
+		return JobState::Halted;
 	if (strcmp(state, "Completed") == 0)
-		return Job::State::Completed;
+		return JobState::Completed;
 	if (strcmp(state, "Failed") == 0)
-		return Job::State::Failed;
-	return Job::State::Terminated;
+		return JobState::Failed;
+	return JobState::Terminated;
 }
 
 template <>
-Task::State FromString(const char* state)
+TaskState FromString(const char* state)
 {
 	if (strcmp(state, "Queued") == 0)
-		return Task::State::Queued;
+		return TaskState::Queued;
 	if (strcmp(state, "Dispatching") == 0)
-		return Task::State::Dispatching;
+		return TaskState::Dispatching;
 	if (strcmp(state, "Executing") == 0)
-		return Task::State::Executing;
+		return TaskState::Executing;
 	if (strcmp(state, "Completed") == 0)
-		return Task::State::Completed;
+		return TaskState::Completed;
 	if (strcmp(state, "Failed") == 0)
-		return Task::State::Failed;
+		return TaskState::Failed;
 	if (strcmp(state, "Aborted") == 0)
-		return Task::State::Aborted;
+		return TaskState::Aborted;
 	if (strcmp(state, "Terminated") == 0)
-		return Task::State::Terminated;
-	return Task::State::Queued;
+		return TaskState::Terminated;
+	return TaskState::Queued;
 }
 
 ResourceSet::ResourceSet()
@@ -330,20 +330,20 @@ std::string ToString(const LabelList& labels)
 	return oss.str();
 }
 
-Task::Status::Status()
-	: state(State::Queued), progress(0), exit_code(0), exec_time(0), finish_time(0)
+TaskStatus::TaskStatus()
+	: state(TaskState::Queued), progress(0), exit_code(0), exec_time(0), finish_time(0)
 {
 }
 
-Task::Status::Status(State s)
+TaskStatus::TaskStatus(TaskState s)
 	: state(s), exit_code(0), exec_time(0), finish_time(0)
 {
 }
 
-bool Task::Status::IsFinished() const
+bool TaskStatus::IsFinished() const
 {
-	return state == Task::State::Completed || state == Task::State::Failed ||
-		state == Task::State::Aborted || state == Task::State::Terminated;
+	return state == TaskState::Completed || state == TaskState::Failed ||
+		state == TaskState::Aborted || state == TaskState::Terminated;
 }
 
 Task::Task(const std::string& job_id, const std::string& task_id, std::string name)
@@ -393,9 +393,9 @@ Json::Value Task::ToJson() const
 	return v;
 }
 
-Job::Job(std::string id, std::string name, Type type)
+Job::Job(std::string id, std::string name, JobType type)
 	: job_id(id), job_name(name), job_type(type), job_priority(50), is_schedulable(true),
-	  submit_time(0), exec_time(0), finish_time(0), job_state(Job::State::Queued)
+	  submit_time(0), exec_time(0), finish_time(0), job_state(JobState::Queued)
 {
 }
 
@@ -461,27 +461,27 @@ void BatchJob::GetTaskList(TaskList& tasks, TaskStatePred pred) const
 		std::copy_if(exec_tasks.begin(), exec_tasks.end(), std::back_inserter(tasks), pred);
 }
 
-Job::State BatchJob::UpdateCurrentState()
+JobState BatchJob::UpdateCurrentState()
 {
 	int num_abort = 0, num_failed = 0, num_completed = 0, num_terminated = 0;
 	for (TaskPtr t : exec_tasks) {
-		Task::State task_state = t->task_status.state;
-		if (task_state == Task::State::Executing) {
-			job_state = Job::State::Executing;
+		TaskState task_state = t->task_status.state;
+		if (task_state == TaskState::Executing) {
+			job_state = JobState::Executing;
 			return job_state;
 		}
-		else if (task_state == Task::State::Completed)
+		else if (task_state == TaskState::Completed)
 			num_completed++;
-		else if (task_state == Task::State::Failed)
+		else if (task_state == TaskState::Failed)
 			num_failed++;
-		else if (task_state == Task::State::Aborted)
+		else if (task_state == TaskState::Aborted)
 			num_abort++;
-		else if (task_state == Task::State::Terminated)
+		else if (task_state == TaskState::Terminated)
 			num_terminated++;
 	}
-	if (num_abort > 0 || num_failed > 0) job_state = Job::State::Failed;
-	if (num_terminated > 0) job_state = Job::State::Terminated;
-	if (num_completed == int(exec_tasks.size())) job_state = Job::State::Completed;
+	if (num_abort > 0 || num_failed > 0) job_state = JobState::Failed;
+	if (num_terminated > 0) job_state = JobState::Terminated;
+	if (num_completed == int(exec_tasks.size())) job_state = JobState::Completed;
 	return job_state;
 }
 
@@ -499,9 +499,9 @@ void DAGJob::GetTaskList(TaskList& tasks, TaskStatePred pred) const
 {
 }
 
-Job::State DAGJob::UpdateCurrentState()
+JobState DAGJob::UpdateCurrentState()
 {
-	return Job::State::Queued;
+	return JobState::Queued;
 }
 
 }

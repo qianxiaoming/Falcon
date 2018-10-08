@@ -45,6 +45,9 @@
     <ClCompile Include="MasterDataState.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="HttpUtil.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="HttpBase.h">
@@ -75,6 +78,12 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="SlaveServer.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="CommonDef.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="HttpUtil.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

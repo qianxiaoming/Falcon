@@ -120,9 +120,9 @@ public:
 
 		JobPtr GetJob(const std::string& job_id) const;
 		MachinePtr GetMachine(const std::string& slave_id) const;
-		bool InsertNewJob(const std::string& job_id, const std::string& name, Job::Type type, const Json::Value& value, std::string& err);
+		bool InsertNewJob(const std::string& job_id, const std::string& name, JobType type, const Json::Value& value, std::string& err);
 		std::string RegisterMachine(const std::string& name, const std::string& addr, uint16_t port, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
-		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const Task::Status& status);
+		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const TaskStatus& status);
 		void AddExecutingTask(const std::string& slave_id, const std::string& job_id, const std::string& task_id);
 		bool Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished);
 		void GetExecutingTasks(TaskList& tasks, const std::string& job_id = std::string());

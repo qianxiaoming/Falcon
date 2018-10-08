@@ -200,20 +200,20 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 				LOG(ERROR) << "Failed to dispatch task to slave "<<task->slave_id<<": " << response["error"].asString();
 			} else {
 				dispatched = true;
-				Task::State state = FromString<Task::State>(response["state"].asCString());
-				Task::Status status(state);
+				TaskState state = FromString<TaskState>(response["state"].asCString());
+				TaskStatus status(state);
 				status.slave_id = task->slave_id;
-				if (state == Task::State::Executing) {
+				if (state == TaskState::Executing) {
 					status.exec_time   = response["time"].asInt64();
 					status.machine     = response["machine"].asString();
-				} else if (state == Task::State::Aborted) {
+				} else if (state == TaskState::Aborted) {
 					status.exit_code   = response["exit_code"].asUInt();
 					status.error_msg   = response["message"].asString();
 					status.finish_time = response["time"].asInt64();
 					status.machine     = response["machine"].asString();
 				}
 				server->State().UpdateTaskStatus(task->job_id, task->task_id, status);
-				if (state == Task::State::Executing)
+				if (state == TaskState::Executing)
 					server->State().AddExecutingTask(task->slave_id, task->job_id, task->task_id);
 			}
 		}
@@ -224,7 +224,7 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 				task_queue.Enqueue(task.release());
 			else {
 				undispatched++;
-				server->State().UpdateTaskStatus(task->job_id, task->task_id, Task::Status(Task::State::Queued));
+				server->State().UpdateTaskStatus(task->job_id, task->task_id, TaskStatus(TaskState::Queued));
 			}
 		}
 	}
@@ -250,12 +250,12 @@ static void TaskScheduleLoop(MasterServer* server, ScheduleEventQueue& sched_que
 			Scheduler::Table::iterator it = table.begin(), end = table.end();
 			while (it != end) {
 				auto it_task = std::find_if(it->second.begin(), it->second.end(),
-					[](const TaskPtr& t) { return t->task_status.state == Task::State::Queued; });
+					[](const TaskPtr& t) { return t->task_status.state == TaskState::Queued; });
 				if (it_task == it->second.end())
 					it++;
 				else {
 					std::string &job_id = (*it_task)->job_id, &task_id = (*it_task)->task_id;
-					if (server->State().UpdateTaskStatus(job_id, task_id, Task::Status(Task::State::Dispatching))) {
+					if (server->State().UpdateTaskStatus(job_id, task_id, TaskStatus(TaskState::Dispatching))) {
 						DispatchTask* task = new DispatchTask(it->first, job_id, task_id);
 						task->content = (*it_task)->ToJson();
 						dispatch_queue.Enqueue(task);

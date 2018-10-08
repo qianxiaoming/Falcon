@@ -9,21 +9,9 @@
 #include <boost/format.hpp>
 #include <boost/function.hpp>
 #include "json/json.h"
+#include "CommonDef.h"
 
 namespace falcon {
-
-const uint16_t MASTER_SLAVE_PORT  = 36780;
-const uint16_t MASTER_CLIENT_PORT = 36781;
-const uint16_t SLAVE_LISTEN_PORT  = 36782;
-
-#define FALCON_MASTER_SERVER_NAME "Falcon-Master"
-#define FALCON_SLAVE_SERVER_NAME  "Falcon-Slave"
-
-#define RESOURCE_CPU              "cpu"
-#define RESOURCE_FREQ             "freq"
-#define RESOURCE_GPU              "gpu"
-#define RESOURCE_MEM              "mem"
-#define RESOURCE_DISK             "disk"
 
 const float DEFAULT_CPU_USAGE  = 1.0;  // 1 cpu for each task
 const int   DEFAULT_FREQ_USAGE = 2400; // 2.4GHz for each task
@@ -87,29 +75,28 @@ std::string ToString(const LabelList& labels);
 
 struct Job;
 
+struct TaskStatus
+{
+	TaskStatus();
+	TaskStatus(TaskState s);
+	bool IsFinished() const;
+
+	TaskState   state;
+	int         progress;
+	std::string exec_tip;
+	uint32_t    exit_code;
+	std::string error_msg;
+	time_t      exec_time;
+	time_t      finish_time;
+	std::string slave_id;
+	std::string machine;
+};
+
 /**
 * @brief Task information to be scheduled and executed on machines
 */
 struct Task
 {
-	enum class State { Queued, Dispatching, Executing, Completed, Failed, Aborted, Terminated };
-	struct Status
-	{
-		Status();
-		Status(State s);
-		bool IsFinished() const;
-
-		State       state;
-		int         progress;
-		std::string exec_tip;
-		uint32_t    exit_code;
-		std::string error_msg;
-		time_t      exec_time;
-		time_t      finish_time;
-		std::string slave_id;
-		std::string machine;
-	};
-
 	Task(const std::string& job_id, const std::string& task_id, std::string name);
 
 	void Assign(const Json::Value& value, const Job* job);
@@ -126,7 +113,7 @@ struct Task
 	LabelList   task_labels;
 	ResourceSet resources;
 
-	Status      task_status;
+	TaskStatus  task_status;
 };
 typedef boost::shared_ptr<Task> TaskPtr;
 typedef std::list<TaskPtr>      TaskList;
@@ -134,10 +121,7 @@ typedef boost::function<bool(const TaskPtr&)> TaskStatePred;
 
 struct Job
 {
-	enum class Type { Batch, DAG };
-	enum class State { Queued, Waiting, Executing, Halted, Completed, Failed, Terminated };
-
-	Job(std::string id, std::string name, Type type);
+	Job(std::string id, std::string name, JobType type);
 
 	virtual ~Job() { }
 
@@ -146,13 +130,13 @@ struct Job
 	virtual void Assign(const Json::Value& value);
 	virtual TaskPtr GetTask(const std::string& id) const = 0;
 	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const = 0;
-	virtual Job::State UpdateCurrentState() = 0;
+	virtual JobState UpdateCurrentState() = 0;
 
 	std::string job_id;
 	std::string job_name;
 	std::string job_envs;
 	LabelList   job_labels;
-	Type        job_type;
+	JobType     job_type;
 	int         job_priority;
 	std::string work_dir;
 	ResourceSet resources;    // default resources for tasks
@@ -161,7 +145,7 @@ struct Job
 	time_t      submit_time;
 	time_t      exec_time;
 	time_t      finish_time;
-	State       job_state;
+	JobState    job_state;
 };
 typedef boost::shared_ptr<Job> JobPtr;
 typedef std::list<JobPtr>      JobList;
@@ -169,12 +153,12 @@ typedef std::list<JobPtr>      JobList;
 struct BatchJob : public Job
 {
 	BatchJob(std::string id, std::string name)
-		: Job(id, name, Type::Batch) { }
+		: Job(id, name, JobType::Batch) { }
 
 	virtual void Assign(const Json::Value& value);
 	virtual TaskPtr GetTask(const std::string& id) const;
 	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const;
-	virtual Job::State UpdateCurrentState();
+	virtual JobState UpdateCurrentState();
 
 	std::string exec_default;
 	TaskList    exec_tasks;
@@ -183,12 +167,12 @@ struct BatchJob : public Job
 struct DAGJob : public Job
 {
 	DAGJob(std::string id, std::string name)
-		: Job(id, name, Type::DAG) { }
+		: Job(id, name, JobType::DAG) { }
 
 	virtual void Assign(const Json::Value& value);
 	virtual TaskPtr GetTask(const std::string& id) const;
 	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const;
-	virtual Job::State UpdateCurrentState();
+	virtual JobState UpdateCurrentState();
 
 	JobList exec_jobs;
 
@@ -198,7 +182,6 @@ struct DAGJob : public Job
 
 struct Machine
 {
-	enum class State { Online, Offline, Unknown };
 	std::string    id;
 	std::string    name;
 	std::string    address;
@@ -206,7 +189,7 @@ struct Machine
 	std::string    os;
 	int            cpu_count;
 	int            cpu_frequency;
-	State          state;
+	MachineState   state;
 	LabelList      labels;
 	ResourceSet    resources;
 
@@ -218,9 +201,9 @@ struct Machine
 typedef boost::shared_ptr<Machine> MachinePtr;
 typedef std::map<std::string, MachinePtr> MachineMap;
 
-const char* ToString(Job::Type type);
-const char* ToString(Job::State state);
-const char* ToString(Task::State state);
+const char* ToString(JobType type);
+const char* ToString(JobState state);
+const char* ToString(TaskState state);
 template <typename T> T FromString(const char* type);
 
 }

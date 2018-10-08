@@ -15,6 +15,8 @@ struct Util
 
 	static bool ParseJsonFromString(const std::string& json, Json::Value& value);
 
+	static std::string JsonToString(const Json::Value& value);
+
 	static ResourceSet ParseResourcesJson(const Json::Value& value);
 
 	static std::string UUID();
@@ -28,22 +30,6 @@ struct Util
 	static void GetGPUInfo(std::string& gpu_name, int& num_gpus, int& gpu_cores);
 
 	static std::string GetLastErrorMessage(int* code);
-};
-
-class HttpUtil
-{
-public:
-	static std::string Get(const std::string& url, char* ret_head = NULL);
-
-	static std::string Post(const std::string& url, const std::string& content);
-
-	static std::string Put(const std::string& url, const std::string& content);
-
-	static std::string Delete(const std::string& url, const std::string& content = "");
-
-	static bool UploadFile(const std::string& url, const std::string& file, uintmax_t file_size = 0, uintmax_t chunk=1024*1024);
-
-	static std::string HttpUtil::ParseHttpURL(const std::string& target, size_t offset, URLParamMap& params);
 };
 
 struct LockGuard
