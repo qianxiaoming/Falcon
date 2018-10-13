@@ -47,7 +47,7 @@ struct JobsHandler : public Handler<MasterServer>
 		LOG(INFO) << "  Job local directory is " << job_dir;
 
 		// save new job into database
-		if (!server->State().InsertNewJob(job_id, value["name"].asString(), FromString<JobType>(value["type"].asCString()), value, err)) {
+		if (!server->State().InsertNewJob(job_id, value["name"].asString(), ToJobType(value["type"].asCString()), value, err)) {
 			boost::filesystem::remove_all(job_dir, ec);
 			boost::filesystem::remove(job_dir, ec);
 			return err;

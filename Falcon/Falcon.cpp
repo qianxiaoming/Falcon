@@ -3,176 +3,6 @@
 
 namespace falcon {
 
-const char* ToString(TaskState state)
-{
-	switch (state) {
-	case TaskState::Queued:
-		return "Queued";
-	case TaskState::Dispatching:
-		return "Dispatching";
-	case TaskState::Executing:
-		return "Executing";
-	case TaskState::Completed:
-		return "Completed";
-	case TaskState::Failed:
-		return "Failed";
-	case TaskState::Aborted:
-		return "Aborted";
-	case TaskState::Terminated:
-		return "Terminated";
-	default:
-		assert(false);
-	}
-	return "";
-}
-
-const char* ToString(JobType type)
-{
-	switch (type) {
-	case JobType::Batch:
-		return "Batch";
-	case JobType::DAG:
-		return "DAG";
-	default:
-		assert(false);
-	}
-	return "";
-}
-
-const char* ToString(JobState state)
-{
-	switch (state) {
-	case JobState::Queued:
-		return "Queued";
-	case JobState::Waiting:
-		return "Waiting";
-	case JobState::Executing:
-		return "Executing";
-	case JobState::Halted:
-		return "Halted";
-	case JobState::Completed:
-		return "Completed";
-	case JobState::Failed:
-		return "Failed";
-	case JobState::Terminated:
-		return "Terminated";
-	default:
-		assert(false);
-	}
-	return "";
-}
-
-template <>
-JobType FromString(const char* type)
-{
-	if (strcmp(type, "Batch") == 0)
-		return JobType::Batch;
-	return JobType::DAG;
-}
-
-template <>
-JobState FromString(const char* state)
-{
-	if (strcmp(state, "Queued") == 0)
-		return JobState::Queued;
-	if (strcmp(state, "Waiting") == 0)
-		return JobState::Waiting;
-	if (strcmp(state, "Executing") == 0)
-		return JobState::Executing;
-	if (strcmp(state, "Halted") == 0)
-		return JobState::Halted;
-	if (strcmp(state, "Completed") == 0)
-		return JobState::Completed;
-	if (strcmp(state, "Failed") == 0)
-		return JobState::Failed;
-	return JobState::Terminated;
-}
-
-template <>
-TaskState FromString(const char* state)
-{
-	if (strcmp(state, "Queued") == 0)
-		return TaskState::Queued;
-	if (strcmp(state, "Dispatching") == 0)
-		return TaskState::Dispatching;
-	if (strcmp(state, "Executing") == 0)
-		return TaskState::Executing;
-	if (strcmp(state, "Completed") == 0)
-		return TaskState::Completed;
-	if (strcmp(state, "Failed") == 0)
-		return TaskState::Failed;
-	if (strcmp(state, "Aborted") == 0)
-		return TaskState::Aborted;
-	if (strcmp(state, "Terminated") == 0)
-		return TaskState::Terminated;
-	return TaskState::Queued;
-}
-
-ResourceSet::ResourceSet()
-{
-	items.swap(std::map<std::string, Value>(
-	{ { RESOURCE_CPU,  DEFAULT_CPU_USAGE }, { RESOURCE_FREQ,  DEFAULT_FREQ_USAGE },
-	  { RESOURCE_GPU,  DEFAULT_GPU_USAGE }, { RESOURCE_MEM,  DEFAULT_MEM_USAGE },
-	  { RESOURCE_DISK, DEFAULT_DISK_USAGE} }));
-}
-
-bool ResourceSet::Exists(const std::string& name) const
-{
-	return items.find(name) != items.end();
-}
-
-bool ResourceSet::Exists(const char* name) const
-{
-	return items.find(name) != items.end();
-}
-
-template <typename T>
-ResourceSet& SetResourceValue(ResourceSet& res, const std::string& name, T val)
-{
-	auto it = res.items.find(name);
-	if (it == res.items.end())
-		res.items.insert(std::make_pair(name, val));
-	else {
-		if (it->second.type == ResourceSet::ValueType::Int)
-			it->second.value.ival = int(val);
-		else
-			it->second.value.fval = float(val);
-	}
-	return res;
-}
-
-ResourceSet& ResourceSet::Set(const std::string& name, int val)
-{
-	return SetResourceValue(*this, name, val);
-}
-
-ResourceSet& ResourceSet::Set(const std::string& name, float val)
-{
-	return SetResourceValue(*this, name, val);
-}
-
-template <typename T>
-T GetResourceValue(const ResourceSet& res, const std::string& name, T val)
-{
-	auto it = res.items.find(name);
-	if (it == res.items.end())
-		return val;
-	if (it->second.type == ResourceSet::ValueType::Int)
-		return T(it->second.value.ival);
-	else
-		return T(it->second.value.ival);
-}
-
-int ResourceSet::Get(const std::string& name, int val) const
-{
-	return GetResourceValue(*this, name, val);
-}
-
-float ResourceSet::Get(const std::string& name, float val) const
-{
-	return GetResourceValue(*this, name, val);
-}
-
 ResourceSet& ResourceSet::operator+=(const ResourceSet& other)
 {
 	for (auto& item : other.items) {
@@ -180,7 +10,7 @@ ResourceSet& ResourceSet::operator+=(const ResourceSet& other)
 		if (it == items.end())
 			items.insert(item);
 		else {
-			if (it->second.type == ResourceSet::ValueType::Int)
+			if (it->second.type == ResourceClaim::ValueType::Int)
 				it->second.value.ival += item.second.value.ival;
 			else
 				it->second.value.fval += item.second.value.fval;
@@ -194,7 +24,7 @@ ResourceSet& ResourceSet::operator-=(const ResourceSet& other)
 	for (auto& item : other.items) {
 		auto it = items.find(item.first);
 		if (it != items.end()) {
-			if (it->second.type == ResourceSet::ValueType::Int)
+			if (it->second.type == ResourceClaim::ValueType::Int)
 				it->second.value.ival -= item.second.value.ival;
 			else
 				it->second.value.fval -= item.second.value.fval;
@@ -209,7 +39,7 @@ ResourceSet::Proportion ResourceSet::operator/(const ResourceSet& other) const
 	for (auto& item : other.items) {
 		auto it = items.find(item.first);
 		if (it != items.end()) {
-			if (it->second.type == ResourceSet::ValueType::Int) {
+			if (it->second.type == ResourceClaim::ValueType::Int) {
 				if (item.second.value.ival == 0)
 					props.insert(std::make_pair(it->first, 0.0f));
 				else
@@ -232,7 +62,7 @@ ResourceSet& IncResourceValue(ResourceSet& res, const std::string& name, T val)
 	if (it == res.items.end())
 		res.items.insert(std::make_pair(name, val));
 	else {
-		if (it->second.type == ResourceSet::ValueType::Int)
+		if (it->second.type == ResourceClaim::ValueType::Int)
 			it->second.value.ival += int(val);
 		else
 			it->second.value.fval += float(val);
@@ -256,7 +86,7 @@ ResourceSet& DecResourceValue(ResourceSet& res, const std::string& name, T val)
 	auto it = res.items.find(name);
 	if (it == res.items.end())
 		return res;
-	if (it->second.type == ResourceSet::ValueType::Int)
+	if (it->second.type == ResourceClaim::ValueType::Int)
 		it->second.value.ival -= int(val);
 	else
 		it->second.value.fval -= float(val);
@@ -276,9 +106,9 @@ ResourceSet& ResourceSet::Decrease(const std::string& name, float val)
 Json::Value ResourceSet::ToJson() const
 {
 	Json::Value val(Json::objectValue);
-	ResourceSet::const_iterator it = items.begin();
+	ResourceClaim::const_iterator it = items.begin();
 	while (it != items.end()) {
-		if (it->second.type == ResourceSet::ValueType::Int)
+		if (it->second.type == ResourceClaim::ValueType::Int)
 			val[it->first] = it->second.value.ival;
 		else
 			val[it->first] = it->second.value.fval;
@@ -287,25 +117,10 @@ Json::Value ResourceSet::ToJson() const
 	return val;
 }
 
-std::string ResourceSet::ToString() const
-{
-	std::ostringstream oss;
-	ResourceSet::const_iterator it = items.begin();
-	while (it != items.end()) {
-		oss << it->first << "=";
-		if (it->second.type == ResourceSet::ValueType::Int)
-			oss << it->second.value.ival << ";";
-		else
-			oss << it->second.value.fval << ";";
-		it++;
-	}
-	return oss.str();
-}
-
 bool ResourceSet::IsSatisfiable(const ResourceSet& other) const
 {
 	for (const auto& v : other.items) {
-		ResourceSet::const_iterator it = items.find(v.first);
+		ResourceClaim::const_iterator it = items.find(v.first);
 		if (it == items.end())
 			return false;
 		if ((it->second.type == ValueType::Int   && it->second.value.ival < v.second.value.ival) ||
@@ -313,21 +128,6 @@ bool ResourceSet::IsSatisfiable(const ResourceSet& other) const
 			return false;
 	}
 	return true;
-}
-
-std::string ToString(const LabelList& labels)
-{
-	if (labels.empty())
-		return "";
-	std::ostringstream oss;
-	LabelList::const_iterator it = labels.begin();
-	oss << it->first << "=" << it->second;
-	it++;
-	while (it != labels.end()) {
-		oss << ";" << it->first << "=" << it->second;
-		it++;
-	}
-	return oss.str();
 }
 
 TaskStatus::TaskStatus()
@@ -424,8 +224,8 @@ void BatchJob::Assign(const Json::Value& value)
 	const Json::Value& tasks = value["tasks"];
 	for (Json::ArrayIndex i = 0; i < tasks.size(); i++) {
 		const Json::Value& v = tasks[i];
-		if (v.isMember("parallel")) {
-			int count = v["parallel"].asInt();
+		if (v.isMember("parallelism")) {
+			int count = v["parallelism"].asInt();
 			for (int p = 0; p < count; p++) {
 				std::string id = boost::str(boost::format("%d.%d") % (i + 1) % (p + 1));
 				TaskPtr task(new Task(job_id, id, v["name"].asString()));

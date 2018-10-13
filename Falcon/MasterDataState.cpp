@@ -204,7 +204,7 @@ bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json:
 	int update_count = updates.size();
 	for (int i = 0; i < update_count; i++) {
 		const Json::Value& t = updates[i];
-		TaskStatus status(FromString<TaskState>(t["state"].asCString()));
+		TaskStatus status(ToTaskState(t["state"].asCString()));
 		status.progress = t["progress"].asInt();
 		status.exec_tip = t["tiptext"].asString();
 		if (t.isMember("exit_code"))

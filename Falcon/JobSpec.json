@@ -15,7 +15,7 @@ Batch job:
 			"name": "task1",
 			"exec": "d:/myprogm.exe",
 			"args": "",
-			"parallel": 10
+			"parallelism": 10
 		},
 		{
 			"name": "task2",

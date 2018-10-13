@@ -567,7 +567,7 @@ struct TasksHandler : public Handler<SlaveServer>
 		CloseHandle(exec_info->err_write_pipe);
 		exec_info->err_write_pipe = NULL;
 
-		if (FromString<TaskState>(response["state"].asCString()) == TaskState::Aborted) {
+		if (ToTaskState(response["state"].asCString()) == TaskState::Aborted) {
 			LOG(ERROR) << "Start process failed: " << response["message"].asString();
 			return response.toStyledString();
 		}

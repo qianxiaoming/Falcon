@@ -80,9 +80,6 @@
     <ClInclude Include="SlaveServer.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="CommonDef.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
     <ClInclude Include="HttpUtil.h">
       <Filter>头文件</Filter>
     </ClInclude>

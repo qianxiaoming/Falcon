@@ -147,6 +147,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\Falcon\HttpUtil.h" />
+    <ClInclude Include="CommonDef.h" />
     <ClInclude Include="libfalcon.h" />
   </ItemGroup>
   <ItemGroup>

@@ -200,7 +200,7 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 				LOG(ERROR) << "Failed to dispatch task to slave "<<task->slave_id<<": " << response["error"].asString();
 			} else {
 				dispatched = true;
-				TaskState state = FromString<TaskState>(response["state"].asCString());
+				TaskState state = ToTaskState(response["state"].asCString());
 				TaskStatus status(state);
 				status.slave_id = task->slave_id;
 				if (state == TaskState::Executing) {
