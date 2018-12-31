@@ -151,6 +151,15 @@ DELETE /api/v1/jobs
 {
 	"job_id": "ekj8lx"
 }
+Response may be
+{
+	"status": "ok",
+	"terminated": 3
+}
+or
+{
+	"status": "not found"
+}
 
 6. Terminate task
 DELETE /tasks

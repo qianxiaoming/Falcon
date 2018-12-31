@@ -345,6 +345,7 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 				read_bytes = DWORD(pos - buf);
 			}
 			task->err_file.write(buf, read_bytes);
+			task->err_file.flush();
 		}
 	});
 	err_thread.detach();
@@ -493,9 +494,9 @@ struct TasksHandler : public Handler<SlaveServer>
 		}
 		LOG(INFO) << "Create stdout/stderr file for new task";
 		exec_info->out_file_path = boost::str(boost::format("%s/%s.out") % exec_info->local_dir % task->task_id);
-		exec_info->out_file.open(exec_info->out_file_path, std::ios_base::out);
+		exec_info->out_file.open(exec_info->out_file_path, std::ios_base::out|std::ios_base::app);
 		exec_info->err_file_path = boost::str(boost::format("%s/%s.err") % exec_info->local_dir % task->task_id);
-		exec_info->err_file.open(exec_info->err_file_path, std::ios_base::out);
+		exec_info->err_file.open(exec_info->err_file_path, std::ios_base::out|std::ios_base::app);
 		if (!exec_info->out_file.is_open() || !exec_info->err_file) {
 			response["state"] = ToString(TaskState::Aborted);
 			response["exit_code"] = EXIT_FAILURE;

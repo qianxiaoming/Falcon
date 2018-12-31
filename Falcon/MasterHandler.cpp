@@ -18,7 +18,18 @@ struct JobsHandler : public Handler<MasterServer>
 	// get job list
 	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
 	{
-		return "{ \"success\": true, \"jobs\" : [] }";
+		Json::Value response(Json::objectValue);
+		response["jobs"] = Json::Value(Json::arrayValue);
+		Json::Value& jobs = response["jobs"];
+		if (params.empty()) {
+
+		} else {
+			// get the job identified by id
+			std::string job_id = params.find("jobid")->second;
+			//server->State().GetJob(job_id);
+		}
+		response["success"] = true;
+		return response.toStyledString();
 	}
 	// create a new job
 	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
@@ -74,9 +85,10 @@ struct JobsHandler : public Handler<MasterServer>
 		Json::Value response(Json::objectValue);
 		response["status"] = "ok";
 
-		if (!server->State().SetJobSchedulable(job_id, false))
+		if (!server->State().SetJobSchedulable(job_id, false)) {
+			response["status"] = "not found";
 			return response.toStyledString();
-		else {
+		} else {
 			TaskList tasks;
 			server->State().GetExecutingTasks(tasks, job_id);
 			int terminated_tasks = 0;

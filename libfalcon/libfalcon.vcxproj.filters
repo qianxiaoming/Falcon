@@ -21,9 +21,6 @@
     <ClInclude Include="..\Falcon\HttpUtil.h">
       <Filter>头文件</Filter>
     </ClInclude>
-    <ClInclude Include="CommonDef.h">
-      <Filter>头文件</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="libfalcon.cpp">

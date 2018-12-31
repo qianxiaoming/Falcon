@@ -9,7 +9,7 @@
 #include <boost/format.hpp>
 #include <boost/function.hpp>
 #include "json/json.h"
-#include "CommonDef.h"
+#include "libfalcon.h"
 
 namespace falcon {
 

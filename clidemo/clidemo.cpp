@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include <iostream>
+#include <ctime>
 #include "libfalcon.h"
 
 int main(int argc, char* argv[])
@@ -18,19 +19,33 @@ int main(int argc, char* argv[])
 	}
 	std::cout << "Cluster \"" << cluster.GetName() << "\" connected." << std::endl;
 
-	// submit batch job
+	// get nodes
+	std::cout << "Nodes in the cluster:" << std::endl;
+	NodeList nodes = cluster.GetNodeList();
+	for (NodeInfo& node : nodes) {
+		std::cout << node.name << "\t" << node.address << "\t" << node.os << "\t" << ToString(node.state) << "\t" << node.resources.ToString() << std::endl;
+	}
+	std::cout << std::endl;
+
+	// submit batch job with 4 tasks
 	std::cout << "Submitting batch job..." << std::endl;
 	// define resources needed by tasks
 	ResourceClaim resources;
 	// different methods for add task to job
 	JobSpec job_spec(JobType::Batch, "Build Model", resources);
-	job_spec.AddTask("Task-1", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "task-1")
-		    .AddTask(TaskSpec("Task-2", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "task-2"));
-	TaskSpec task3("Task-3");
-	task3.command = "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe";
-	task3.command_args = "";
+	job_spec.command = "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe";
+	job_spec.AddTask("Task-1", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file")
+		    .AddTask(TaskSpec("Task-2", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file"));
+	TaskSpec task3("Task-3"); // if you do not set command in TaskSpec, it will use the command of JobSpec
+	task3.command_args = "some file for task3";
 	task3.environments = "TASK_NAME=Task-3";
 	job_spec.AddTask(task3);
+	// define a task request gpu resource
+	TaskSpec task4("GPU Task", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file");
+	task4.work_dir = "C:\\Temp"; // specify the current dir for task execution
+	task4.parallelism = 4; // 4 task instances to execute. Default is 1
+	task4.resources.Set(RESOURCE_GPU, 1); // request 1 GPU
+	job_spec.AddTask(task4);
 
 	// submit job
 	std::string msg;
@@ -39,5 +54,38 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 	std::cout << "Success with job id: " << job_spec.job_id << std::endl;
+
+	// get all jobs
+	std::cout << std::endl << "All jobs in cluster:" << std::endl;
+	JobList jobs = cluster.QueryJobList();
+	for (JobPtr job : jobs) {
+		const JobSpec& job_spec = job->GetSpec();
+		std::cout << job_spec.job_id << "\t" << job_spec.job_name << "\t" << job_spec.command << std::endl;
+	}
+	if (jobs.empty())
+		return EXIT_FAILURE;
+
+	// use the first job as example
+	std::cout << std::endl;
+	JobPtr job = *(jobs.begin());
+	TaskInfoList tasks = job->GetTaskList(); // get all tasks in this job
+	while (true) {
+		_sleep(2000);
+		JobInfo info;
+		job->UpdateJobInfo(info);
+		std::cout << "JobID: " << job->GetSpec().job_id << "\tProgress: " << info.progress << std::endl;
+
+		job->UpdateTaskInfo(tasks);
+		if (tasks.empty())
+			break; // this means all tasks in this job are finished
+		for (TaskInfo& t : tasks) {
+			std::cout << "  " << t.task_id << "\t" << t.task_name << "\t" << ToString(t.task_state) << "\t" << t.progress << "\t" << t.exec_node << "\t";
+			if (t.start_time)
+				std::cout << std::ctime(&t.start_time) << "\t";
+			if (t.finish_time)
+				std::cout << std::ctime(&t.finish_time) << std::endl;
+		}
+	}
+	
 	return EXIT_SUCCESS;
 }
