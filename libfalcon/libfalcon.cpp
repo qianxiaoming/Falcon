@@ -232,8 +232,11 @@ JobPtr ComputingCluster::QueryJob(const std::string& id) const
 		LOG(ERROR) << "Unable to get job identified by " << id << ": " << response["error"].asString();
 		return job;
 	}
+	const Json::Value& jobs_json = response["jobs"];
+	if (jobs_json.size() == 0)
+		return job;
 	job.reset(new Job(const_cast<ComputingCluster*>(this), id));
-	FromJsonValue(job->GetSpec(), response);
+	FromJsonValue(job->GetSpec(), jobs_json[0]);
 	return job;
 }
 
@@ -247,9 +250,11 @@ JobList ComputingCluster::QueryJobList() const
 		LOG(ERROR) << "Unable to get job list: " << response["error"].asString();
 		return JobList();
 	}
+
 	JobList jobs;
-	for (Json::ArrayIndex i = 0; i < response.size(); i++) {
-		const Json::Value& job_json = response[i];
+	const Json::Value& jobs_json = response["jobs"];
+	for (Json::ArrayIndex i = 0; i < jobs_json.size(); i++) {
+		const Json::Value& job_json = jobs_json[i];
 		JobPtr job(new Job(const_cast<ComputingCluster*>(this), job_json["id"].asString()));
 		FromJsonValue(job->GetSpec(), job_json);
 	}
@@ -267,9 +272,10 @@ NodeList ComputingCluster::GetNodeList() const
 		LOG(ERROR) << "Unable to get nodes in this cluster: " << response["error"].asString();
 		return nodes;
 	}
-	for (Json::ArrayIndex i = 0; i < response.size(); i++) {
+	Json::Value& nodes_json = response["nodes"];
+	for (Json::ArrayIndex i = 0; i < nodes_json.size(); i++) {
 		NodeInfo info;
-		FromJsonValue(info, response[i]);
+		FromJsonValue(info, nodes_json[i]);
 		nodes.push_back(info);
 	}
 	return std::move(nodes);
@@ -507,6 +513,10 @@ static void FromJsonValue(NodeInfo& info, const Json::Value& value)
 	info.address = value["address"].asString();
 	info.os = value["os"].asString();
 	info.state = ToMachineState(value["state"].asCString());
+	info.online = value["online"].asInt64();
+	info.labels = value.isMember("labels") ? value["labels"].asString() : "";
+	if (value.isMember("resources"))
+		FromJsonValue(info.resources, value["resources"]);
 }
 
 }

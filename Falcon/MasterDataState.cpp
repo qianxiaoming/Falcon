@@ -244,4 +244,30 @@ bool MasterServer::DataState::SetJobSchedulable(const std::string& job_id, bool 
 	return true;
 }
 
+bool MasterServer::DataState::QueryJobsJson(const std::vector<std::string>& ids, Json::Value& result)
+{
+
+	return true;
+}
+
+bool MasterServer::DataState::QueryNodesJson(Json::Value& result)
+{
+	std::lock_guard<std::mutex> lock_queue(machine_mutex);
+	result.resize(machines.size());
+	int index = 0;
+	for (MachineMap::iterator it = machines.begin(); it != machines.end(); it++, index++) {
+		MachinePtr mac = it->second;
+		Json::Value val(Json::objectValue);
+		val["name"]      = mac->name;
+		val["address"]   = mac->address;
+		val["os"]        = mac->os;
+		val["state"]     = ToString(mac->state);
+		val["online"]    = mac->online;
+		val["labels"]    = ToString(mac->labels);
+		val["resources"] = mac->resources.ToJson();
+		result[index] = val;
+	}
+	return true;
+}
+
 }

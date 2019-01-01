@@ -127,6 +127,9 @@ public:
 		bool Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished);
 		void GetExecutingTasks(TaskList& tasks, const std::string& job_id = std::string());
 		bool SetJobSchedulable(const std::string& job_id, bool schedulable);
+
+		bool QueryJobsJson(const std::vector<std::string>& ids, Json::Value& result);
+		bool QueryNodesJson(Json::Value& result);
 	};
 	DataState data_state;
 

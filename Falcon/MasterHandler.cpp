@@ -18,17 +18,15 @@ struct JobsHandler : public Handler<MasterServer>
 	// get job list
 	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
 	{
+		std::vector<std::string> job_ids;
+		if (!params.empty())
+			job_ids.push_back(params.find("id")->second);
 		Json::Value response(Json::objectValue);
 		response["jobs"] = Json::Value(Json::arrayValue);
-		Json::Value& jobs = response["jobs"];
-		if (params.empty()) {
-
-		} else {
-			// get the job identified by id
-			std::string job_id = params.find("jobid")->second;
-			//server->State().GetJob(job_id);
-		}
-		response["success"] = true;
+		if (!server->State().QueryJobsJson(job_ids, response["jobs"]))
+			response["error"] = "Job identified by " + job_ids[0] + " not found";
+		else
+			response["success"] = true;
 		return response.toStyledString();
 	}
 	// create a new job
@@ -111,6 +109,22 @@ struct JobsHandler : public Handler<MasterServer>
 			}
 			response["terminated"] = terminated_tasks;
 		}
+		return response.toStyledString();
+	}
+};
+
+// handler for "/api/v1/nodes" endpoint
+struct NodesHandler : public Handler<MasterServer>
+{
+	// get job list
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
+	{
+		Json::Value response(Json::objectValue);
+		response["nodes"] = Json::Value(Json::arrayValue);
+		if (!server->State().QueryNodesJson(response["nodes"]))
+			response["error"] = "Unable to get nodes in cluster";
+		else
+			response["success"] = true;
 		return response.toStyledString();
 	}
 };
@@ -243,6 +257,7 @@ void MasterServer::SetupAPIHandler()
 {
 	static MasterAPI v1;
 	v1.RegisterHandler("/jobs", new handler::api::JobsHandler());
+	v1.RegisterHandler("/nodes", new handler::api::NodesHandler());
 	v1.RegisterHandler("/healthz", new handler::api::HealthzHandler());
 	master_api_table["/api/v1/"] = &v1;
 

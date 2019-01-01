@@ -23,7 +23,11 @@ int main(int argc, char* argv[])
 	std::cout << "Nodes in the cluster:" << std::endl;
 	NodeList nodes = cluster.GetNodeList();
 	for (NodeInfo& node : nodes) {
-		std::cout << node.name << "\t" << node.address << "\t" << node.os << "\t" << ToString(node.state) << "\t" << node.resources.ToString() << std::endl;
+		std::cout << "  Node Name: " << node.name << std::endl;
+		std::cout << "  Address:   " << node.address << std::endl;
+		std::cout << "  OS Name:   " << node.os << std::endl;
+		std::cout << "  State:     " << ToString(node.state) << std::endl;
+		std::cout << "  Resources: " << node.resources.ToString() << std::endl;
 	}
 	std::cout << std::endl;
 
@@ -34,9 +38,9 @@ int main(int argc, char* argv[])
 	// different methods for add task to job
 	JobSpec job_spec(JobType::Batch, "Build Model", resources);
 	job_spec.command = "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe";
-	job_spec.AddTask("Task-1", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file")
+	job_spec.AddTask("CPU Task-1", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file")
 		    .AddTask(TaskSpec("Task-2", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file"));
-	TaskSpec task3("Task-3"); // if you do not set command in TaskSpec, it will use the command of JobSpec
+	TaskSpec task3("CPU Task-3"); // if you do not set command in TaskSpec, it will use the command of JobSpec
 	task3.command_args = "some file for task3";
 	task3.environments = "TASK_NAME=Task-3";
 	job_spec.AddTask(task3);

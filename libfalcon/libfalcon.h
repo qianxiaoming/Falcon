@@ -193,7 +193,7 @@ struct FALCON_API NodeInfo
 	std::string   os;
 	MachineState  state;
 	time_t        online;
-	LabelList     labels;
+	std::string   labels;
 	ResourceClaim resources;
 };
 
