@@ -246,14 +246,73 @@ bool MasterServer::DataState::SetJobSchedulable(const std::string& job_id, bool 
 
 bool MasterServer::DataState::QueryJobsJson(const std::vector<std::string>& ids, Json::Value& result)
 {
+	std::lock_guard<std::mutex> lock_queue(queue_mutex);
+	int index = 0;
+	if (ids.empty()) {
+		result.resize(Json::Value::ArrayIndex(job_queue.size()));
+		for (JobPtr job : job_queue) {
+			result[index] = job->ToJson();
+			index++;
+		}
+	} else {
+		result.resize(Json::Value::ArrayIndex(ids.size()));
+		for (const std::string& id : ids) {
+			JobList::iterator it = std::find_if(job_queue.begin(), job_queue.end(), [&id](JobPtr job) { return job->job_id == id; });
+			if (it != job_queue.end())
+				result[index] = (*it)->ToJson();
+			index++;
+		}
+	}
+	return true;
+}
 
+bool MasterServer::DataState::QueryTasksJson(std::string job_id, const std::vector<std::string>& task_ids, Json::Value& result)
+{
+	TaskList tasks;
+	if (tasks.empty()) {
+		std::lock_guard<std::mutex> lock_queue(queue_mutex);
+		JobList::iterator it = std::find_if(job_queue.begin(), job_queue.end(), [&job_id](JobPtr job) { return job->job_id == job_id; });
+		if (it == job_queue.end())
+			return false;
+
+		if (task_ids.empty())
+			(*it)->GetTaskList(tasks);
+		else {
+			for (const std::string& id : task_ids) {
+				TaskPtr task = (*it)->GetTask(id);
+				if (task)
+					tasks.push_back(task);
+			}
+		}
+	}
+	if (tasks.empty())
+		return true;
+	result.resize(Json::Value::ArrayIndex(tasks.size()));
+	int index = 0;
+	for (TaskPtr task : tasks) {
+		Json::Value value(Json::objectValue);
+		value["id"] = task->task_id;
+		value["name"] = task->task_name;
+		value["state"] = ToString(task->task_status.state);
+		value["progress"] = task->task_status.progress;
+		value["exit_code"] = task->task_status.exit_code;
+		if (!task->task_status.machine.empty())
+			value["node"] = task->task_status.machine;
+		if (!task->task_status.error_msg.empty())
+			value["message"] = task->task_status.error_msg;
+		if (task->task_status.exec_time != 0)
+			value["start_time"] = task->task_status.exec_time;
+		if (task->task_status.finish_time != 0)
+			value["finish_time"] = task->task_status.finish_time;
+		result[index++] = value;
+	}
 	return true;
 }
 
 bool MasterServer::DataState::QueryNodesJson(Json::Value& result)
 {
 	std::lock_guard<std::mutex> lock_queue(machine_mutex);
-	result.resize(machines.size());
+	result.resize(Json::Value::ArrayIndex(machines.size()));
 	int index = 0;
 	for (MachineMap::iterator it = machines.begin(); it != machines.end(); it++, index++) {
 		MachinePtr mac = it->second;

@@ -77,7 +77,7 @@ int main(int argc, char* argv[])
 		_sleep(2000);
 		JobInfo info;
 		job->UpdateJobInfo(info);
-		std::cout << "JobID: " << job->GetSpec().job_id << "\tProgress: " << info.progress << std::endl;
+		std::cout << "JobID: " << job->GetSpec().job_id << "\tState: "<<ToString(info.job_state)<<"\tProgress: " << info.progress << std::endl;
 
 		job->UpdateTaskInfo(tasks);
 		if (tasks.empty())

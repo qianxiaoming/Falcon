@@ -176,11 +176,12 @@ struct FALCON_API TaskInfo
 	std::string task_id;
 	std::string task_name;
 	TaskState   task_state;
-	float       progress;
+	int32_t     progress;
 	std::string message;
 	std::string exec_node;
 	time_t      start_time;
 	time_t      finish_time;
+	uint32_t    exit_code;
 };
 typedef std::list<TaskInfo> TaskInfoList;
 
@@ -229,6 +230,10 @@ public:
 	bool UpdateTaskInfo(TaskInfoList& tasks);
 
 	bool TerminateTask(std::string task_id);
+
+	std::string GetTaskStdOutput(std::string task_id);
+
+	std::string GetTaskStdError(std::string task_id);
 
 private:
 	ComputingCluster* cluster;

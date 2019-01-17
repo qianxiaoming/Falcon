@@ -213,6 +213,25 @@ void Job::Assign(const Json::Value& value)
 		resources = Util::ParseResourcesJson(value["resources"]);
 }
 
+Json::Value Job::ToJson() const
+{
+	Json::Value val(Json::objectValue);
+	val["name"] = job_name;
+	val["type"] = ToString(job_type);
+	if (!job_envs.empty())
+		val["envs"] = job_envs;
+	if (!job_labels.empty())
+		val["labels"] = ToString(job_labels);
+	val["priority"] = job_priority;
+	if (!exec_default.empty())
+		val["exec"] = exec_default;
+	if (!work_dir.empty())
+		val["workdir"] = work_dir;
+	if (!resources.items.empty())
+		val["resources"] = resources.ToJson();
+	return val;
+}
+
 void BatchJob::Assign(const Json::Value& value)
 {
 	Job::Assign(value);

@@ -130,6 +130,7 @@ public:
 
 		bool QueryJobsJson(const std::vector<std::string>& ids, Json::Value& result);
 		bool QueryNodesJson(Json::Value& result);
+		bool QueryTasksJson(std::string job_id, const std::vector<std::string>& task_ids, Json::Value& result);
 	};
 	DataState data_state;
 

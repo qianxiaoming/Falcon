@@ -89,6 +89,7 @@ struct Job
 	bool IsSchedulable() const { return is_schedulable; }
 	void SetSchedulable(bool schedulable) { is_schedulable = schedulable; }
 	virtual void Assign(const Json::Value& value);
+	virtual Json::Value ToJson() const;
 	virtual TaskPtr GetTask(const std::string& id) const = 0;
 	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const = 0;
 	virtual JobState UpdateCurrentState() = 0;
@@ -99,6 +100,7 @@ struct Job
 	LabelList   job_labels;
 	JobType     job_type;
 	int         job_priority;
+	std::string exec_default;
 	std::string work_dir;
 	ResourceSet resources;    // default resources for tasks
 	bool        is_schedulable;
@@ -121,7 +123,6 @@ struct BatchJob : public Job
 	virtual void GetTaskList(TaskList& tasks, TaskStatePred pred = TaskStatePred()) const;
 	virtual JobState UpdateCurrentState();
 
-	std::string exec_default;
 	TaskList    exec_tasks;
 };
 

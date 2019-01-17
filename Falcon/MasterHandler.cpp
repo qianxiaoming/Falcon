@@ -113,6 +113,79 @@ struct JobsHandler : public Handler<MasterServer>
 	}
 };
 
+// handler for "/api/v1/tasks" endpoint
+struct TasksHandler : public Handler<MasterServer>
+{
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
+	{
+		URLParamMap::const_iterator it = params.find("job_id");
+		if (it == params.end())
+			return "{\"error\": \"No job id parameter specified\" }";
+		Json::Value result(Json::arrayValue);
+		if (server->State().QueryTasksJson((*it).second, std::vector<std::string>(), result))
+			return result.toStyledString();
+		else
+			return "{\"error\": \"Specified job not found\" }";
+	}
+
+	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		Json::Value value;
+		if (!Util::ParseJsonFromString(body, value))
+			return "Illegal json body for update tasks";
+		std::string job_id = value["job_id"].asString();
+		std::vector<std::string> ids(value["tasks"].size());
+		for (size_t i = 0; i < ids.size(); i++)
+			ids[i] = value["tasks"][Json::ArrayIndex(i)].asString();
+		Json::Value result(Json::arrayValue);
+		if (server->State().QueryTasksJson(job_id, ids, result))
+			return result.toStyledString();
+		else
+			return "{\"error\": \"Specified job not found\" }";
+	}
+
+	virtual std::string Delete(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
+	{
+		Json::Value value;
+		if (!Util::ParseJsonFromString(body, value))
+			return "Illegal json body for terminating task";
+		std::string job_id = value["job_id"].asString();
+		std::string task_id = value["task_id"].asString();
+		LOG(INFO) << "Termination task \""<<task_id<<"\" of job \"" << job_id << "\" is request from " << remote;
+
+		Json::Value response(Json::objectValue);
+
+		JobPtr job = server->State().GetJob(job_id);
+		if (!job) {
+			response["error"] = "Job not found";
+			return response.toStyledString();
+		}
+		TaskPtr task = job->GetTask(task_id);
+		if (!task) {
+			response["error"] = "task not found";
+			return response.toStyledString();
+		}
+
+		Json::Value v(Json::objectValue);
+		v["job_id"] = job_id;
+		v["task_id"] = task_id;
+		std::string result = HttpUtil::Delete(boost::str(boost::format("%s/tasks") % task->task_status.slave_id), v.toStyledString());
+		if (!Util::ParseJsonFromString(result, v)) {
+			LOG(INFO) << "Terminate task " << task->job_id << "." << task->task_id << ": " << result;
+			response["error"] = result;
+		} else {
+			if (v.isMember("error")) {
+				LOG(INFO) << "Failed to terminate task " << task->job_id << "." << task->task_id << ": " << v["error"].asString();
+				response["error"] = v["error"].asString();
+			} else {
+				LOG(INFO) << "Terminate task " << task->job_id << "." << task->task_id << ": Success";
+				response["status"] = "ok";
+			}
+		}
+		return response.toStyledString();
+	}
+};
+
 // handler for "/api/v1/nodes" endpoint
 struct NodesHandler : public Handler<MasterServer>
 {
@@ -207,7 +280,6 @@ struct HeartbeatsHandler : public Handler<MasterServer>
 // handler for "/cluster/logs" endpoint
 struct LogsHandler : public Handler<MasterServer>
 {
-	// register new slave
 	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
 	{
 		std::string job_id = params.at("job_id"), task_id = params.at("task_id"), name = params.at("name");
@@ -223,7 +295,7 @@ struct LogsHandler : public Handler<MasterServer>
 			return response.toStyledString();
 		}
 		if (offset > 0)
-			fseek(f, offset, SEEK_SET);
+			fseek(f, long(offset), SEEK_SET);
 		fwrite(body.c_str(), 1, body.size(), f);
 		fclose(f);
 		response["status"] = "ok";
@@ -258,6 +330,9 @@ void MasterServer::SetupAPIHandler()
 	static MasterAPI v1;
 	v1.RegisterHandler("/jobs", new handler::api::JobsHandler());
 	v1.RegisterHandler("/nodes", new handler::api::NodesHandler());
+	v1.RegisterHandler("/tasks", new handler::api::TasksHandler());
+	v1.RegisterHandler("/tasks/stdout", new handler::api::StdOutHandler());
+	v1.RegisterHandler("/tasks/stderr", new handler::api::StdErrHandler());
 	v1.RegisterHandler("/healthz", new handler::api::HealthzHandler());
 	master_api_table["/api/v1/"] = &v1;
 

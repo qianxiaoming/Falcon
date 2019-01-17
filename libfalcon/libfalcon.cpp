@@ -119,7 +119,7 @@ TaskSpec::TaskSpec(std::string name, std::string cmd, std::string cmd_args) :
 }
 
 TaskInfo::TaskInfo() 
-	: task_state(TaskState::Queued), progress(0.0f), start_time(0), finish_time(0)
+	: task_state(TaskState::Queued), progress(0), start_time(0), finish_time(0), exit_code(0)
 {
 }
 
@@ -332,9 +332,11 @@ bool Job::UpdateTaskInfo(TaskInfoList& tasks)
 		return info.task_state == TaskState::Aborted || info.task_state == TaskState::Completed ||
 			   info.task_state == TaskState::Failed  || info.task_state == TaskState::Terminated;
 	});
-	if (removed == tasks.end())
-		return true;
-	tasks.erase(removed, tasks.end());
+	if (removed != tasks.end()) {
+		tasks.erase(removed, tasks.end());
+		if (tasks.empty())
+			return true;
+	}
 
 	Json::Value request(Json::objectValue);
 	request["job_id"] = job_spec.job_id;
@@ -379,6 +381,16 @@ bool Job::TerminateTask(std::string task_id)
 		return false;
 	}
 	return response["status"].asString() == "ok";
+}
+
+std::string Job::GetTaskStdOutput(std::string task_id)
+{
+	return "";
+}
+
+std::string Job::GetTaskStdError(std::string task_id)
+{
+	return "";
 }
 
 static bool ParseJsonFromString(const std::string& json, Json::Value& value)
@@ -500,11 +512,12 @@ static void FromJsonValue(TaskInfo& info, const Json::Value& value)
 	info.task_id = value["id"].asString();
 	info.task_name = value["name"].asString();
 	info.task_state = ToTaskState(value["state"].asCString());
-	info.progress = value["progress"].asFloat();
+	info.progress = value["progress"].asInt();
 	info.exec_node = value.isMember("node") ? value["node"].asString() : "";
 	info.message = value.isMember("message") ? value["message"].asString() : "";
 	info.start_time = value.isMember("start_time") ? value["start_time"].asInt64() : 0;
 	info.finish_time = value.isMember("finish_time") ? value["finish_time"].asInt64() : 0;
+	info.exit_code = value["exit_code"].asUInt();
 }
 
 static void FromJsonValue(NodeInfo& info, const Json::Value& value)
