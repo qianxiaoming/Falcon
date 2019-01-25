@@ -186,6 +186,46 @@ struct TasksHandler : public Handler<MasterServer>
 	}
 };
 
+// handler for "/api/v1/tasks/stream" endpoint
+struct TaskStreamHandler : public Handler<MasterServer>
+{
+	// get task stream
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
+	{
+		URLParamMap::const_iterator it_jobid= params.find("job_id"), it_taskid = params.find("task_id");
+		if (it_jobid == params.end() || it_taskid == params.end())
+			return "{\"error\": \"No job id or task id parameter specified\" }";
+		std::string job_id = it_jobid->second, task_id = it_taskid->second, type = "out";
+
+		URLParamMap::const_iterator it = params.find("type");
+		if (it != params.end())
+			type = it->second;
+
+		Json::Value response(Json::objectValue);
+		response[type] = "";
+		std::string log_file = boost::str(boost::format("%s/jobs/%s/%s.%s") % Util::GetModulePath() % job_id % task_id % type);
+		FILE* f = fopen(log_file.c_str(), "rb");
+		if (!f)
+			response["error"] = "Cannot open task stream file " + log_file;
+		else {
+			int size = int(boost::filesystem::file_size(log_file));
+			if (size > 0) {
+				boost::scoped_array<char> buf(new char[size+1]);
+				memset(buf.get(), 0, size+1);
+				fread(buf.get(), 1, size, f);
+				if (strchr(buf.get(), '"') != NULL) {
+					std::string stream = buf.get();
+					boost::replace_all(stream, "\"", "\\\"");
+					response[type] = stream;
+				} else
+					response[type] = buf.get();
+			}
+			fclose(f);
+		}
+		return response.toStyledString();
+	}
+};
+
 // handler for "/api/v1/nodes" endpoint
 struct NodesHandler : public Handler<MasterServer>
 {
@@ -331,8 +371,7 @@ void MasterServer::SetupAPIHandler()
 	v1.RegisterHandler("/jobs", new handler::api::JobsHandler());
 	v1.RegisterHandler("/nodes", new handler::api::NodesHandler());
 	v1.RegisterHandler("/tasks", new handler::api::TasksHandler());
-	v1.RegisterHandler("/tasks/stdout", new handler::api::StdOutHandler());
-	v1.RegisterHandler("/tasks/stderr", new handler::api::StdErrHandler());
+	v1.RegisterHandler("/tasks/stream", new handler::api::TaskStreamHandler());
 	v1.RegisterHandler("/healthz", new handler::api::HealthzHandler());
 	master_api_table["/api/v1/"] = &v1;
 

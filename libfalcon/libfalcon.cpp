@@ -123,6 +123,12 @@ TaskInfo::TaskInfo()
 {
 }
 
+bool TaskInfo::IsFinished() const
+{
+	return task_state == TaskState::Aborted || task_state == TaskState::Completed ||
+		task_state == TaskState::Failed || task_state == TaskState::Terminated;
+}
+
 JobSpec::JobSpec() : priority(50)
 {
 }
@@ -385,12 +391,32 @@ bool Job::TerminateTask(std::string task_id)
 
 std::string Job::GetTaskStdOutput(std::string task_id)
 {
-	return "";
+	std::string request = boost::str(boost::format("%s/api/v1/tasks/stream?job_id=%s&task_id=%s&type=out")
+		% cluster->GetServerAddr() % job_spec.job_id % task_id);
+	std::string result = HttpUtil::Get(request);
+	Json::Value response;
+	if (!ParseJsonFromString(result, response))
+		return false;
+	if (response.isMember("error")) {
+		LOG(ERROR) << "Failed to get task " << job_spec.job_id << "." << task_id << " stdout: " << response["error"].asString();
+		return false;
+	}
+	return response["out"].asString();
 }
 
 std::string Job::GetTaskStdError(std::string task_id)
 {
-	return "";
+	std::string request = boost::str(boost::format("%s/api/v1/tasks/stream?job_id=%s&task_id=%s&type=err")
+		% cluster->GetServerAddr() % job_spec.job_id % task_id);
+	std::string result = HttpUtil::Get(request);
+	Json::Value response;
+	if (!ParseJsonFromString(result, response))
+		return false;
+	if (response.isMember("error")) {
+		LOG(ERROR) << "Failed to get task " << job_spec.job_id << "." << task_id << " stderr: " << response["error"].asString();
+		return false;
+	}
+	return response["err"].asString();
 }
 
 static bool ParseJsonFromString(const std::string& json, Json::Value& value)

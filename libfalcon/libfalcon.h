@@ -27,10 +27,10 @@ namespace falcon {
 #define RESOURCE_MEM              "mem"
 #define RESOURCE_DISK             "disk"
 
-const float DEFAULT_CPU_USAGE = 1.0;  // 1 cpu for each task
-const int   DEFAULT_FREQ_USAGE = 2400; // 2.4GHz for each task
-const int   DEFAULT_GPU_USAGE = 0;    // no gpu used for each task
-const int   DEFAULT_MEM_USAGE = 256;  // 256M memory for each task
+const float DEFAULT_CPU_USAGE = 1.0;   // 1 cpu for each task
+const int   DEFAULT_FREQ_USAGE = 2800; // 2.8GHz for each task
+const int   DEFAULT_GPU_USAGE = 0;     // no gpu used for each task
+const int   DEFAULT_MEM_USAGE = 1024;  // 1G memory for each task
 const int   DEFAULT_DISK_USAGE = 200;  // 200M local disk for each task
 
 const uint16_t MASTER_SLAVE_PORT = 36780;
@@ -172,6 +172,7 @@ struct FALCON_API JobSpec
 struct FALCON_API TaskInfo
 {
 	TaskInfo();
+	bool IsFinished() const;
 
 	std::string task_id;
 	std::string task_name;

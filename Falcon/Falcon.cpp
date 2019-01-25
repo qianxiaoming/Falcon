@@ -251,6 +251,9 @@ void BatchJob::Assign(const Json::Value& value)
 				task->Assign(v, this);
 				if (task->exec_command.empty())
 					task->exec_command = exec_default;
+				if (!task->exec_envs.empty())
+					task->exec_envs += ";";
+				task->exec_envs += boost::str(boost::format("TASK_INDEX=%d") % p);
 				exec_tasks.push_back(task);
 			}
 		} else {

@@ -164,7 +164,7 @@ bool SlaveServer::CollectSystemInfo()
 	Util::GetGPUInfo(gpu_name, num_gpus, gpu_cores);
 	slave_resources.Set(RESOURCE_GPU, num_gpus);
 	// TODO Get the disk spaces
-	slave_resources.Set(RESOURCE_DISK, 2048);
+	slave_resources.Set(RESOURCE_DISK, 2048*1024);
 	return true;
 }
 

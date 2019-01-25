@@ -11,7 +11,7 @@ int main(int argc, char* argv[])
 	int port = MASTER_CLIENT_PORT;
 	if (argc > 2)
 		port = std::atoi(argv[2]);
-	// connect to cluster
+	// 连接到集群
 	ComputingCluster cluster(argv[1], port);
 	if (!cluster.IsConnected()) {
 		std::cerr << "Failed to connect to " << argv[1] << std::endl;
@@ -19,7 +19,7 @@ int main(int argc, char* argv[])
 	}
 	std::cout << "Cluster \"" << cluster.GetName() << "\" connected." << std::endl;
 
-	// get nodes
+	// 获取所有节点信息
 	std::cout << "Nodes in the cluster:" << std::endl;
 	NodeList nodes = cluster.GetNodeList();
 	for (NodeInfo& node : nodes) {
@@ -31,27 +31,31 @@ int main(int argc, char* argv[])
 	}
 	std::cout << std::endl;
 
-	// submit batch job with 4 tasks
+	// 提交一个批处理作业（含4个任务）
 	std::cout << "Submitting batch job..." << std::endl;
-	// define resources needed by tasks
+	// 定义默认的任务资源需求：1个CPU，0个GPU，1G内存使用
 	ResourceClaim resources;
-	// different methods for add task to job
 	JobSpec job_spec(JobType::Batch, "Build Model", resources);
-	job_spec.command = "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe";
+	job_spec.command = "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe"; // 所有任务默认使用的可执行程序
+	// 以下演示不同的方法向Job中增加Task
+	// 使用AddTask可以连续追加Task。当没有特别资源需求时，可以使用简便的方法
 	job_spec.AddTask("CPU Task-1", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file")
 		    .AddTask(TaskSpec("Task-2", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file"));
-	TaskSpec task3("CPU Task-3"); // if you do not set command in TaskSpec, it will use the command of JobSpec
+	// 使用单独的TaskSpec对象，可以单独指定程序名称，环境变量等
+	TaskSpec task3("CPU Task-3");
 	task3.command_args = "some file for task3";
 	task3.environments = "TASK_NAME=Task-3";
 	job_spec.AddTask(task3);
-	// define a task request gpu resource
+	// 定义一个使用GPU的任务
 	TaskSpec task4("GPU Task", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file");
-	task4.work_dir = "C:\\Temp"; // specify the current dir for task execution
-	task4.parallelism = 4; // 4 task instances to execute. Default is 1
-	task4.resources.Set(RESOURCE_GPU, 1); // request 1 GPU
+	task4.work_dir = "C:\\Temp"; // 指定程序的工作目录
+	// 指定程序启动多少个实例，默认是1个。注意当启动多个实例时，可执行程序和参数都是一样的，
+	// 可通过环境变量TASK_INDEX区分（从0开始）
+	task4.parallelism = 4;
+	task4.resources.Set(RESOURCE_GPU, 1); // 使用1个GPU
 	job_spec.AddTask(task4);
 
-	// submit job
+	// 提交作业到集群。提交成功后，job_spec里面的job_id被更新为作业的唯一标识。
 	std::string msg;
 	if (!cluster.SubmitJob(job_spec, &msg)) {
 		std::cerr << "Failed to submit batch job: " << msg << std::endl;
@@ -59,35 +63,41 @@ int main(int argc, char* argv[])
 	}
 	std::cout << "Success with job id: " << job_spec.job_id << std::endl;
 
-	// get all jobs
+	// 获取所有作业并输出
 	std::cout << std::endl << "All jobs in cluster:" << std::endl;
 	JobList jobs = cluster.QueryJobList();
 	for (JobPtr job : jobs) {
 		const JobSpec& job_spec = job->GetSpec();
-		std::cout << job_spec.job_id << "\t" << job_spec.job_name << "\t" << job_spec.command << std::endl;
+		std::cout << job_spec.job_id << "\t" << job_spec.job_name << "\t" << job_spec.job_name << std::endl;
 	}
 	if (jobs.empty())
 		return EXIT_FAILURE;
 
-	// use the first job as example
+	// 下面使用第一个job作为演示的例子
 	std::cout << std::endl;
 	JobPtr job = *(jobs.begin());
-	TaskInfoList tasks = job->GetTaskList(); // get all tasks in this job
+	TaskInfoList tasks = job->GetTaskList(); // 获取作业中的所有Task信息
 	while (true) {
-		_sleep(2000);
+		_sleep(2000); // 周期性刷新状态信息
 		JobInfo info;
-		job->UpdateJobInfo(info);
+		job->UpdateJobInfo(info); // 更新作业的状态信息并显示
 		std::cout << "JobID: " << job->GetSpec().job_id << "\tState: "<<ToString(info.job_state)<<"\tProgress: " << info.progress << std::endl;
 
-		job->UpdateTaskInfo(tasks);
+		job->UpdateTaskInfo(tasks); // 更新Task状态信息，传入开始获取到的Task列表
 		if (tasks.empty())
-			break; // this means all tasks in this job are finished
+			break; // 注意：UpdateTaskInfo函数内部会移除上一次更新时已经结束的Task（无论成功还是失败），因此当列表为空就表示所有的Task都结束了
 		for (TaskInfo& t : tasks) {
+			// 输出Task的状态信息
 			std::cout << "  " << t.task_id << "\t" << t.task_name << "\t" << ToString(t.task_state) << "\t" << t.progress << "\t" << t.exec_node << "\t";
 			if (t.start_time)
 				std::cout << std::ctime(&t.start_time) << "\t";
 			if (t.finish_time)
 				std::cout << std::ctime(&t.finish_time) << std::endl;
+			if (t.IsFinished()) {
+				// 任务已经结束了，输出标准流的内容
+				std::cout << job->GetTaskStdOutput(t.task_id) << std::endl;
+				std::cout << job->GetTaskStdError(t.task_id) << std::endl;
+			}
 		}
 	}
 	
