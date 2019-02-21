@@ -6,6 +6,8 @@
 #define GLOG_NO_ABBREVIATED_SEVERITIES
 #include <glog/logging.h>
 #include <boost/bind.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/algorithm/string.hpp>
 #include "Falcon.h"
 #include "MasterServer.h"
 #include "SlaveServer.h"
@@ -81,39 +83,53 @@ void WINAPI ServiceMain(int argc, char** argv)
 	LOG(INFO) << "Falcon service started";
 }
 
-//int main(int argc, const char *argv[])
-//{
-//	if (strcmp(argv[1], "master") == 0)
-//		server_base = falcon::MasterServer::Instance();
-//	else if (strcmp(argv[1], "slave") == 0) {
-//		falcon::SlaveServer* slave = falcon::SlaveServer::Instance();
-//		if (argc >= 3)
-//			slave->SetSlavePort(std::atoi(argv[2]));
-//		else if (char* port = getenv("FALCON_SLAVE_PORT"))
-//			slave->SetSlavePort(std::atoi(port));
-//		else
-//			slave->SetSlavePort(falcon::SLAVE_LISTEN_PORT);
-//
-//		if (argc >= 4)
-//			slave->SetMasterAddr(argv[3]);
-//		else if (char* addr = getenv("FALCON_MASTER_IP"))
-//			slave->SetMasterAddr(addr);
-//		else
-//			slave->SetMasterAddr("127.0.0.1");
-//		server_base = slave;
-//	} else
-//		return EXIT_FAILURE;
-//
-//	SERVICE_TABLE_ENTRY ServiceTable[2];
-//	ServiceTable[0].lpServiceName = (LPSTR)server_base->GetName();
-//	ServiceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
-//	ServiceTable[1].lpServiceName = NULL;
-//	ServiceTable[1].lpServiceProc = NULL;
-//
-//	StartServiceCtrlDispatcher(ServiceTable);
-//	return 0;
-//}
+int main(int argc, const char *argv[])
+{
+	if (strcmp(argv[1], "master") == 0)
+		server_base = falcon::MasterServer::Instance();
+	else if (strcmp(argv[1], "slave") == 0) {
+		falcon::SlaveServer* slave = falcon::SlaveServer::Instance();
+		if (argc >= 3)
+			slave->SetSlavePort(std::atoi(argv[2]));
+		else if (char* port = getenv("FALCON_SLAVE_PORT"))
+			slave->SetSlavePort(std::atoi(port));
+		else
+			slave->SetSlavePort(falcon::SLAVE_LISTEN_PORT);
 
+		std::string config_file = falcon::Util::GetModulePath() + "/Falcon-Slave.conf";
+		if (argc >= 4)
+			slave->SetMasterAddr(argv[3]);
+		else if (char* addr = getenv("FALCON_MASTER_IP"))
+			slave->SetMasterAddr(addr);
+		else if (boost::filesystem::exists(config_file)) {
+			FILE* f = fopen(config_file.c_str(), "r");
+			if (f) {
+				char ip[128] = { 0 };
+				fgets(ip, 128, f);
+				fclose(f);
+				char* eq = strchr(ip, '=');
+				if (eq) {
+					std::string master_ip = eq + 1;
+					slave->SetMasterAddr(boost::trim_copy(master_ip));
+				} else
+					return EXIT_FAILURE;
+			}
+		} else
+			slave->SetMasterAddr("127.0.0.1");
+		server_base = slave;
+	} else
+		return EXIT_FAILURE;
+
+	SERVICE_TABLE_ENTRY ServiceTable[2];
+	ServiceTable[0].lpServiceName = (LPSTR)server_base->GetName();
+	ServiceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
+	ServiceTable[1].lpServiceName = NULL;
+	ServiceTable[1].lpServiceProc = NULL;
+
+	StartServiceCtrlDispatcher(ServiceTable);
+	return 0;
+}
+/*
 int main(int argc, const char *argv[])
 {
 	char module_name[256] = { 0 };
@@ -162,3 +178,4 @@ int main(int argc, const char *argv[])
 	google::ShutdownGoogleLogging();
 	return 0;
 }
+*/

@@ -111,6 +111,8 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 					task->task_status.exec_tip = status.exec_tip;
 			}
 			else if (status.state == TaskState::Completed || status.state == TaskState::Failed) {
+				if (status.state == TaskState::Completed)
+					task->task_status.progress = status.progress;
 				task->task_status.finish_time = status.finish_time;
 				task->task_status.exit_code = status.exit_code;
 			}
@@ -206,6 +208,8 @@ bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json:
 		const Json::Value& t = updates[i];
 		TaskStatus status(ToTaskState(t["state"].asCString()));
 		status.progress = t["progress"].asInt();
+		if (status.state == TaskState::Completed)
+			status.progress = 100;
 		status.exec_tip = t["tiptext"].asString();
 		if (t.isMember("exit_code"))
 			status.exit_code = t["exit_code"].asUInt();

@@ -4,6 +4,10 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/bind.hpp>
+#include <winsock2.h>
+#include <Windows.h>
+#include <Psapi.h>
+#include <LM.h>
 #include "Falcon.h"
 #include "HttpBase.h"
 #include "SlaveServer.h"
@@ -29,6 +33,83 @@ bool SlaveServer::StartServer()
 	if (!server->SetupListenHTTP())
 		return false;
 
+	return true;
+}
+
+bool MountRemoteFileSys()
+{
+	// Z=cifs:\\192.168.5.201\data
+	std::string config_file = falcon::Util::GetModulePath() + "/Wit3d-Slave.conf";
+	if (!boost::filesystem::exists(config_file))
+		return true;
+
+	FILE* f = fopen(config_file.c_str(), "r");
+	if (!f) {
+		LOG(WARNING) << "Cannot open slave config file " << config_file;
+		return false;
+	}
+	std::string remote_filesys;
+	while (true) {
+		char line[256] = { 0 };
+		fgets(line, 255, f);
+		if (!boost::starts_with(line, "mount"))
+			continue;
+		fclose(f);
+		char* eq = strchr(line, '=');
+		if (eq) {
+			remote_filesys = eq + 1;
+			boost::trim(remote_filesys);
+		}
+		else {
+			LOG(WARNING) << "Invalid mount configuration: " << line;
+			return false;
+		}
+	}
+	if (remote_filesys.empty())
+		return true;
+
+	LOG(INFO) << "Mount remote file system as " << remote_filesys;
+	std::string local_disk_name, remote_share_add;
+	std::string::size_type pos = remote_filesys.find('=');
+	if (pos != std::string::npos) {
+		local_disk_name = boost::trim_copy(remote_filesys.substr(0, pos));
+		std::string val = boost::trim_copy(remote_filesys.substr(pos + 1));
+		pos = val.find(':');
+		if (pos != std::string::npos)
+			remote_share_add = boost::trim_copy(val.substr(pos + 1));
+	}
+	if (local_disk_name.empty() || remote_share_add.empty()) {
+		LOG(WARNING) << "Invalid format for mount path configuration";
+		return false;
+	}
+
+	if (!boost::ends_with(local_disk_name, ":"))
+		local_disk_name = boost::str(boost::format("%s:") % local_disk_name);
+
+	// NetUseAdd/NetUseDel
+	int length = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, local_disk_name.c_str(), -1, NULL, 0);
+	if (length == 0)
+		return false;
+	boost::scoped_array<wchar_t> local_result(new wchar_t[length]);
+	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, local_disk_name.c_str(), -1, local_result.get(), length);
+
+	length = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, remote_share_add.c_str(), -1, NULL, 0);
+	if (length == 0)
+		return false;
+	boost::scoped_array<wchar_t> remote_result(new wchar_t[length]);
+	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, remote_share_add.c_str(), -1, remote_result.get(), length);
+
+	USE_INFO_2 use_info;
+	memset(&use_info, '\0', sizeof use_info);
+	use_info.ui2_local = local_result.get();
+	use_info.ui2_remote = remote_result.get();
+
+	DWORD ret = 0, err_num = 0;
+	ret = NetUseAdd(NULL, 2, (BYTE *)&use_info, &err_num);
+	if (ret != ERROR_SUCCESS) {
+		LOG(ERROR) << "NetUseAdd() failed, return:" << ret << ", error_no:" << err_num;
+		return false;
+	}
 	return true;
 }
 
@@ -89,6 +170,8 @@ void SlaveServer::RunServer()
 	// register in master server
 	if (!RegisterSlave())
 		return;
+
+	MountRemoteFileSys();
 
 	// run event loop
 	hb_timer.reset(new boost::asio::steady_timer(*ioctx, boost::asio::chrono::seconds(HEARTBEAT_CHECK_INTERVAL)));
@@ -307,7 +390,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 		hb_elapsed++;  // do nothing, just increase elapsed counter
 	else {
 		// must send heartbeat information
-		DLOG(INFO) << "Sending heartbeat to master " << master_addr << " with " << hb_message["updates"].size() << " updates...";
+		//DLOG(INFO) << "Sending heartbeat to master " << master_addr << " with " << hb_message["updates"].size() << " updates...";
 		hb_elapsed = 0;
 		std::string result = HttpUtil::Post(master_addr + "/cluster/heartbeats", hb_message.toStyledString());
 		Json::Value response;
@@ -315,7 +398,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 			// TODO: save finished tasks into local file
 			LOG(WARNING) << "Failed to send heartbeat to master " << master_addr << ": " << (response.isNull() ? result : Util::JsonToString(response));
 		} else {
-			DLOG(INFO) << "Success: " << Util::JsonToString(response);
+			//DLOG(INFO) << "Success: " << Util::JsonToString(response);
 		}
 	}
 	if (!IsStopped()) {

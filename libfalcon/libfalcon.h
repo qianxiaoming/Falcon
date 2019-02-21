@@ -77,6 +77,9 @@ struct FALCON_API ResourceClaim
 	ResourceClaim(const ResourceClaim& claim);
 	~ResourceClaim();
 
+	bool IsEmpty() const;
+	void UseDefault();
+
 	std::string ToString() const;
 
 	bool Exists(const std::string& name) const;
@@ -204,8 +207,7 @@ struct FALCON_API JobInfo
 	JobInfo();
 
 	JobState          job_state;
-	float             progress;
-	std::string       message;
+	int32_t           progress;
 	time_t            submit_time;
 	time_t            exec_time;
 	time_t            finish_time;

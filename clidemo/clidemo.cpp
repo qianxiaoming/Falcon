@@ -40,14 +40,14 @@ int main(int argc, char* argv[])
 	// 以下演示不同的方法向Job中增加Task
 	// 使用AddTask可以连续追加Task。当没有特别资源需求时，可以使用简便的方法
 	job_spec.AddTask("CPU Task-1", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file")
-		    .AddTask(TaskSpec("Task-2", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file"));
+		    .AddTask(TaskSpec("CPU Task-2", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file"));
 	// 使用单独的TaskSpec对象，可以单独指定程序名称，环境变量等
 	TaskSpec task3("CPU Task-3");
 	task3.command_args = "some file for task3";
 	task3.environments = "TASK_NAME=Task-3";
 	job_spec.AddTask(task3);
 	// 定义一个使用GPU的任务
-	TaskSpec task4("GPU Task", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file");
+	TaskSpec task4("GPU Task-1", "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe", "some-file");
 	task4.work_dir = "C:\\Temp"; // 指定程序的工作目录
 	// 指定程序启动多少个实例，默认是1个。注意当启动多个实例时，可执行程序和参数都是一样的，
 	// 可通过环境变量TASK_INDEX区分（从0开始）
@@ -68,31 +68,30 @@ int main(int argc, char* argv[])
 	JobList jobs = cluster.QueryJobList();
 	for (JobPtr job : jobs) {
 		const JobSpec& job_spec = job->GetSpec();
-		std::cout << job_spec.job_id << "\t" << job_spec.job_name << "\t" << job_spec.job_name << std::endl;
+		std::cout << job_spec.job_id << "\t" << job_spec.job_name << "\t" << ToString(job_spec.job_type) << std::endl;
 	}
 	if (jobs.empty())
 		return EXIT_FAILURE;
 
-	// 下面使用第一个job作为演示的例子
-	std::cout << std::endl;
-	JobPtr job = *(jobs.begin());
+	// 下面使用最后一个job作为演示的例子
+	JobPtr job = *(jobs.rbegin());
 	TaskInfoList tasks = job->GetTaskList(); // 获取作业中的所有Task信息
 	while (true) {
 		_sleep(2000); // 周期性刷新状态信息
 		JobInfo info;
 		job->UpdateJobInfo(info); // 更新作业的状态信息并显示
-		std::cout << "JobID: " << job->GetSpec().job_id << "\tState: "<<ToString(info.job_state)<<"\tProgress: " << info.progress << std::endl;
+		std::cout << std::endl << "JobID: " << job->GetSpec().job_id << "\tState: "<<ToString(info.job_state)<<"\tProgress: " << info.progress << std::endl;
 
 		job->UpdateTaskInfo(tasks); // 更新Task状态信息，传入开始获取到的Task列表
 		if (tasks.empty())
 			break; // 注意：UpdateTaskInfo函数内部会移除上一次更新时已经结束的Task（无论成功还是失败），因此当列表为空就表示所有的Task都结束了
 		for (TaskInfo& t : tasks) {
 			// 输出Task的状态信息
-			std::cout << "  " << t.task_id << "\t" << t.task_name << "\t" << ToString(t.task_state) << "\t" << t.progress << "\t" << t.exec_node << "\t";
-			if (t.start_time)
-				std::cout << std::ctime(&t.start_time) << "\t";
-			if (t.finish_time)
-				std::cout << std::ctime(&t.finish_time) << std::endl;
+			std::cout << " ID=" << t.task_id << "\t\tName=" << t.task_name << "\tState=" << ToString(t.task_state) << "\tProgress=" << t.progress << "%\tNode="
+				<< (t.exec_node.empty() ? "----" : t.exec_node) << "\tExitCode=" << t.exit_code;
+			if (t.start_time && t.finish_time)
+				std::cout << "\tDuration=" << (t.finish_time - t.start_time) << "s";
+			std::cout << std::endl;
 			if (t.IsFinished()) {
 				// 任务已经结束了，输出标准流的内容
 				std::cout << job->GetTaskStdOutput(t.task_id) << std::endl;

@@ -10,10 +10,6 @@ namespace falcon {
 
 ResourceClaim::ResourceClaim()
 {
-	items.swap(std::map<std::string, Value>(
-	{ { RESOURCE_CPU,  DEFAULT_CPU_USAGE },{ RESOURCE_FREQ,  DEFAULT_FREQ_USAGE },
-	  { RESOURCE_GPU,  DEFAULT_GPU_USAGE },{ RESOURCE_MEM,  DEFAULT_MEM_USAGE },
-	  { RESOURCE_DISK, DEFAULT_DISK_USAGE } }));
 }
 
 ResourceClaim::ResourceClaim(const ResourceClaim& claim) : items(claim.items)
@@ -22,6 +18,19 @@ ResourceClaim::ResourceClaim(const ResourceClaim& claim) : items(claim.items)
 
 ResourceClaim::~ResourceClaim()
 {
+}
+
+bool ResourceClaim::IsEmpty() const
+{
+	return items.empty();
+}
+
+void ResourceClaim::UseDefault()
+{
+	items.swap(std::map<std::string, Value>(
+	{ { RESOURCE_CPU,  DEFAULT_CPU_USAGE },{ RESOURCE_FREQ,  DEFAULT_FREQ_USAGE },
+	  { RESOURCE_GPU,  DEFAULT_GPU_USAGE },{ RESOURCE_MEM,  DEFAULT_MEM_USAGE },
+	  { RESOURCE_DISK, DEFAULT_DISK_USAGE } }));
 }
 
 std::string ResourceClaim::ToString() const
@@ -149,18 +158,25 @@ JobSpec::JobSpec(JobType type, std::string name, std::string cmd) :
 
 JobSpec& JobSpec::AddTask(const TaskSpec& task)
 {
-	tasks.push_back(task);
+	if (task.resources.IsEmpty()) {
+		TaskSpec spec = task;
+		spec.resources = resources;
+		tasks.push_back(spec);
+	} else 
+		tasks.push_back(task);
 	return *this;
 }
 
 JobSpec& JobSpec::AddTask(std::string name, std::string cmd, std::string cmd_args)
 {
-	tasks.push_back(TaskSpec(name, cmd, cmd_args));
+	TaskSpec spec(name, cmd, cmd_args);
+	spec.resources = resources;
+	tasks.push_back(spec);
 	return *this;
 }
 
 JobInfo::JobInfo()
-	: job_state(JobState::Queued), progress(0.0f), submit_time(0), exec_time(0), finish_time(0)
+	: job_state(JobState::Queued), progress(0), submit_time(0), exec_time(0), finish_time(0)
 {
 }
 
@@ -263,6 +279,7 @@ JobList ComputingCluster::QueryJobList() const
 		const Json::Value& job_json = jobs_json[i];
 		JobPtr job(new Job(const_cast<ComputingCluster*>(this), job_json["id"].asString()));
 		FromJsonValue(job->GetSpec(), job_json);
+		jobs.push_back(job);
 	}
 	return std::move(jobs);
 }
@@ -303,8 +320,7 @@ bool Job::UpdateJobInfo(JobInfo& info)
 		return false;
 	}
 	info.job_state   = ToJobState(response["state"].asCString());
-	info.progress    = response["progress"].asFloat();
-	info.message     = response.isMember("message") ? response["message"].asString() : "";
+	info.progress    = response["progress"].asInt();
 	info.submit_time = response.isMember("submit_time") ? response["submit_time"].asInt64() : 0;
 	info.exec_time   = response.isMember("exec_time") ? response["exec_time"].asInt64() : 0;
 	info.finish_time = response.isMember("finish_time") ? response["finish_time"].asInt64() : 0;
@@ -318,7 +334,7 @@ TaskInfoList Job::GetTaskList()
 	Json::Value response;
 	if (!ParseJsonFromString(result, response))
 		return tasks;
-	if (response.isMember("error")) {
+	if (response.type() == Json::objectValue) {
 		LOG(ERROR) << "Unable to get task list for job " << job_spec.job_id << ": " << response["error"].asString();
 		return tasks;
 	}
@@ -360,12 +376,12 @@ bool Job::UpdateTaskInfo(TaskInfoList& tasks)
 	Json::Value response;
 	if (!ParseJsonFromString(result, response))
 		return false;
-	if (response.isMember("error")) {
+	if (response.type() == Json::objectValue) {
 		LOG(ERROR) << "Unable to update task list for job " << job_spec.job_id << ": " << response["error"].asString();
 		return false;
 	}
 	for (Json::ArrayIndex i = 0; i < response.size(); i++) {
-		std::string task_id = response[i]["task_id"].asString();
+		std::string task_id = response[i]["id"].asString();
 		TaskInfoList::iterator it = std::find_if(tasks.begin(), tasks.end(), [&task_id](const TaskInfo& info) { return info.task_id == task_id; });
 		if (it != tasks.end())
 			FromJsonValue(*it, response[i]);
@@ -446,7 +462,7 @@ static Json::Value ToJsonValue(const TaskSpec& task_spec)
 		spec["args"] = task_spec.command_args;
 	if (task_spec.parallelism > 1)
 		spec["parallelism"] = task_spec.parallelism;
-	if (!task_spec.resources.items.empty())
+	if (!task_spec.resources.IsEmpty())
 		spec["resources"] = ToJsonValue(task_spec.resources);
 	return spec;
 }
@@ -467,6 +483,7 @@ static void FromJsonValue(TaskSpec& spec, const Json::Value& value)
 static Json::Value ToJsonValue(const JobSpec& job_spec)
 {
 	Json::Value spec(Json::objectValue);
+	spec["id"] = job_spec.job_id;
 	spec["name"] = job_spec.job_name;
 	spec["type"] = ToString(job_spec.job_type);
 	if (!job_spec.environments.empty())
@@ -478,7 +495,7 @@ static Json::Value ToJsonValue(const JobSpec& job_spec)
 		spec["exec"] = boost::replace_all_copy(job_spec.command, "\\", "/");
 	if (!job_spec.work_dir.empty())
 		spec["workdir"] = boost::replace_all_copy(job_spec.work_dir, "\\", "/");
-	if (!job_spec.resources.items.empty())
+	if (!job_spec.resources.IsEmpty())
 		spec["resources"] = ToJsonValue(job_spec.resources);
 	Json::Value tasks(Json::arrayValue);
 	for (auto t : job_spec.tasks)
@@ -489,6 +506,7 @@ static Json::Value ToJsonValue(const JobSpec& job_spec)
 
 void FromJsonValue(JobSpec& spec, const Json::Value& value)
 {
+	spec.job_id       = value["id"].asString();
 	spec.job_name     = value["name"].asString();
 	spec.job_type     = ToJobType(value["type"].asCString());
 	spec.environments = value.isMember("envs") ? value["envs"].asString() : "";

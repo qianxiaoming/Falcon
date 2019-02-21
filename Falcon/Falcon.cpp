@@ -136,7 +136,7 @@ TaskStatus::TaskStatus()
 }
 
 TaskStatus::TaskStatus(TaskState s)
-	: state(s), exit_code(0), exec_time(0), finish_time(0)
+	: state(s), progress(0), exit_code(0), exec_time(0), finish_time(0)
 {
 }
 
@@ -195,7 +195,7 @@ Json::Value Task::ToJson() const
 
 Job::Job(std::string id, std::string name, JobType type)
 	: job_id(id), job_name(name), job_type(type), job_priority(50), is_schedulable(true),
-	  submit_time(0), exec_time(0), finish_time(0), job_state(JobState::Queued)
+	  submit_time(0), exec_time(0), finish_time(0), job_state(JobState::Queued), progress(0)
 {
 }
 
@@ -216,6 +216,7 @@ void Job::Assign(const Json::Value& value)
 Json::Value Job::ToJson() const
 {
 	Json::Value val(Json::objectValue);
+	val["id"] = job_id;
 	val["name"] = job_name;
 	val["type"] = ToString(job_type);
 	if (!job_envs.empty())
@@ -257,7 +258,7 @@ void BatchJob::Assign(const Json::Value& value)
 				exec_tasks.push_back(task);
 			}
 		} else {
-			TaskPtr task(new Task(job_id, std::to_string(i), v["name"].asString()));
+			TaskPtr task(new Task(job_id, std::to_string((i+1)), v["name"].asString()));
 			task->Assign(v, this);
 			if (task->exec_command.empty())
 				task->exec_command = exec_default;
@@ -285,14 +286,15 @@ void BatchJob::GetTaskList(TaskList& tasks, TaskStatePred pred) const
 
 JobState BatchJob::UpdateCurrentState()
 {
-	int num_abort = 0, num_failed = 0, num_completed = 0, num_terminated = 0;
+	int num_exec = 0, num_abort = 0, num_failed = 0, num_completed = 0, num_terminated = 0;
+	float accu_prog = 0.0f, scale_prog = 1.0f / exec_tasks.size();
 	for (TaskPtr t : exec_tasks) {
 		TaskState task_state = t->task_status.state;
 		if (task_state == TaskState::Executing) {
 			job_state = JobState::Executing;
-			return job_state;
-		}
-		else if (task_state == TaskState::Completed)
+			accu_prog += t->task_status.progress*scale_prog;
+			num_exec++;
+		} else if (task_state == TaskState::Completed)
 			num_completed++;
 		else if (task_state == TaskState::Failed)
 			num_failed++;
@@ -301,9 +303,14 @@ JobState BatchJob::UpdateCurrentState()
 		else if (task_state == TaskState::Terminated)
 			num_terminated++;
 	}
-	if (num_abort > 0 || num_failed > 0) job_state = JobState::Failed;
-	if (num_terminated > 0) job_state = JobState::Terminated;
-	if (num_completed == int(exec_tasks.size())) job_state = JobState::Completed;
+	if (num_exec == 0) {
+		if (num_abort > 0 || num_failed > 0) job_state = JobState::Failed;
+		if (num_terminated > 0) job_state = JobState::Terminated;
+		if (num_completed == int(exec_tasks.size())) job_state = JobState::Completed;
+	}
+	progress = int((num_completed + num_failed + num_abort + num_terminated) / float(exec_tasks.size()) * 100.0f + accu_prog);
+	if (progress > 100)
+		progress = 100;
 	return job_state;
 }
 

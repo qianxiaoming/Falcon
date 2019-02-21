@@ -88,6 +88,7 @@ struct Job
 
 	bool IsSchedulable() const { return is_schedulable; }
 	void SetSchedulable(bool schedulable) { is_schedulable = schedulable; }
+	int GetProgress() const { return progress; }
 	virtual void Assign(const Json::Value& value);
 	virtual Json::Value ToJson() const;
 	virtual TaskPtr GetTask(const std::string& id) const = 0;
@@ -109,6 +110,7 @@ struct Job
 	time_t      exec_time;
 	time_t      finish_time;
 	JobState    job_state;
+	int         progress;
 };
 typedef boost::shared_ptr<Job> JobPtr;
 typedef std::list<JobPtr>      JobList;

@@ -113,6 +113,29 @@ struct JobsHandler : public Handler<MasterServer>
 	}
 };
 
+// handler for "/api/v1/jobinfo" endpoint
+struct JobInfoHandler : public Handler<MasterServer>
+{
+	// get job info
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
+	{
+		std::string job_id = params.find("id")->second;
+		JobPtr job = server->State().GetJob(job_id);
+		if (!job)
+			return "{\"error\": \"Job not found\" }";
+		Json::Value response(Json::objectValue);
+		response["state"] = ToString(job->job_state);
+		response["progress"] = 1;
+		response["submit_time"] = job->submit_time;
+		response["progress"] = job->GetProgress();
+		if (job->exec_time != 0)
+			response["exec_time"] = job->exec_time;
+		if (job->finish_time != 0)
+			response["finish_time"] = job->finish_time;
+		return response.toStyledString();
+	}
+};
+
 // handler for "/api/v1/tasks" endpoint
 struct TasksHandler : public Handler<MasterServer>
 {
@@ -134,9 +157,10 @@ struct TasksHandler : public Handler<MasterServer>
 		if (!Util::ParseJsonFromString(body, value))
 			return "Illegal json body for update tasks";
 		std::string job_id = value["job_id"].asString();
-		std::vector<std::string> ids(value["tasks"].size());
+		const Json::Value& ids_json = value["tasks"];
+		std::vector<std::string> ids(ids_json.size());
 		for (size_t i = 0; i < ids.size(); i++)
-			ids[i] = value["tasks"][Json::ArrayIndex(i)].asString();
+			ids[i] = ids_json[Json::ArrayIndex(i)].asString();
 		Json::Value result(Json::arrayValue);
 		if (server->State().QueryTasksJson(job_id, ids, result))
 			return result.toStyledString();
@@ -304,7 +328,7 @@ struct HeartbeatsHandler : public Handler<MasterServer>
 			return "Illegal json body for heartbeat";
 
 		std::string slave_id = value["id"].asString();
-		DLOG(INFO) << "Heartbeat from " << slave_id << " received: Task Load=" << value["load"].asInt();
+		//DLOG(INFO) << "Heartbeat from " << slave_id << " received: Task Load=" << value["load"].asInt();
 		Json::Value response(Json::objectValue);
 		int finished = 0;
 		if (server->State().Heartbeat(slave_id, value["updates"], finished)) {
@@ -369,6 +393,7 @@ void MasterServer::SetupAPIHandler()
 {
 	static MasterAPI v1;
 	v1.RegisterHandler("/jobs", new handler::api::JobsHandler());
+	v1.RegisterHandler("/jobinfo", new handler::api::JobInfoHandler());
 	v1.RegisterHandler("/nodes", new handler::api::NodesHandler());
 	v1.RegisterHandler("/tasks", new handler::api::TasksHandler());
 	v1.RegisterHandler("/tasks/stream", new handler::api::TaskStreamHandler());
