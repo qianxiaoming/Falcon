@@ -129,53 +129,52 @@ int main(int argc, const char *argv[])
 	StartServiceCtrlDispatcher(ServiceTable);
 	return 0;
 }
-/*
-int main(int argc, const char *argv[])
-{
-	char module_name[256] = { 0 };
-	::GetModuleFileNameA(NULL, module_name, 256);
-	if (char* pos = strrchr(module_name, '\\')) {
-		*pos = 0;
-		FLAGS_log_dir = module_name;
-		FLAGS_alsologtostderr = true;
-	}
-	std::string role = argv[1];
-	std::string logging = std::string("falcon-") + role;
-	FLAGS_log_dir = falcon::Util::GetModulePath();
-	FLAGS_logbuflevel = -1;
-	google::InitGoogleLogging(logging.c_str());
 
-	if (role == "slave") {
-		falcon::SlaveServer* slave_server = falcon::SlaveServer::Instance();
-		slave_server->SetSlavePort(argc > 2 ? std::atoi(argv[2]) : falcon::SLAVE_LISTEN_PORT);
-		slave_server->SetMasterAddr(argc > 3 ? argv[3] : "127.0.0.1");
-		if (!slave_server->StartServer())
-			return EXIT_FAILURE;
-		else {
-			std::thread service_thread(boost::bind(&falcon::SlaveServer::RunServer, slave_server));
-			service_thread.detach();
-		}
-
-		getchar();
-		slave_server->StopServer();
-		Sleep(3000);
-		falcon::SlaveServer::Destory();
-	} else {
-		std::unique_ptr<falcon::MasterServer> master_server(new falcon::MasterServer());
-		if (!master_server->StartServer())
-			return EXIT_FAILURE;
-		else {
-			std::thread service_thread(boost::bind(&falcon::MasterServer::RunServer, master_server.get()));
-			service_thread.detach();
-		}
-		
-		getchar();
-		master_server->StopServer();
-		Sleep(3000);
-		falcon::MasterServer::Destory();
-	}
-
-	google::ShutdownGoogleLogging();
-	return 0;
-}
-*/
+//int main(int argc, const char *argv[])
+//{
+//	char module_name[256] = { 0 };
+//	::GetModuleFileNameA(NULL, module_name, 256);
+//	if (char* pos = strrchr(module_name, '\\')) {
+//		*pos = 0;
+//		FLAGS_log_dir = module_name;
+//		FLAGS_alsologtostderr = true;
+//	}
+//	std::string role = argv[1];
+//	std::string logging = std::string("falcon-") + role;
+//	FLAGS_log_dir = falcon::Util::GetModulePath();
+//	FLAGS_logbuflevel = -1;
+//	google::InitGoogleLogging(logging.c_str());
+//
+//	if (role == "slave") {
+//		falcon::SlaveServer* slave_server = falcon::SlaveServer::Instance();
+//		slave_server->SetSlavePort(argc > 2 ? std::atoi(argv[2]) : falcon::SLAVE_LISTEN_PORT);
+//		slave_server->SetMasterAddr(argc > 3 ? argv[3] : "127.0.0.1");
+//		if (!slave_server->StartServer())
+//			return EXIT_FAILURE;
+//		else {
+//			std::thread service_thread(boost::bind(&falcon::SlaveServer::RunServer, slave_server));
+//			service_thread.detach();
+//		}
+//
+//		getchar();
+//		slave_server->StopServer();
+//		Sleep(3000);
+//		falcon::SlaveServer::Destory();
+//	} else {
+//		std::unique_ptr<falcon::MasterServer> master_server(new falcon::MasterServer());
+//		if (!master_server->StartServer())
+//			return EXIT_FAILURE;
+//		else {
+//			std::thread service_thread(boost::bind(&falcon::MasterServer::RunServer, master_server.get()));
+//			service_thread.detach();
+//		}
+//		
+//		getchar();
+//		master_server->StopServer();
+//		Sleep(3000);
+//		falcon::MasterServer::Destory();
+//	}
+//
+//	google::ShutdownGoogleLogging();
+//	return 0;
+//}

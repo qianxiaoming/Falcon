@@ -11,7 +11,7 @@
 namespace falcon {
 
 MasterConfig::MasterConfig()
-	: cluster_name("Falcon Cluster"),
+	: cluster_name("Wit3D Cluster"),
 	  slave_addr("0.0.0.0"),  slave_port(MASTER_SLAVE_PORT),   slave_num_threads(3), slave_heartbeat(10),
 	  client_addr("0.0.0.0"), client_port(MASTER_CLIENT_PORT), client_num_threads(2),
 	  dispatch_num_threads(1), dispatch_try_times(2)
@@ -33,6 +33,7 @@ bool MasterServer::StartServer()
 		return false;
 	if (!server->SetupClientHTTP())
 		return false;
+	LOG(INFO) << "Setup http api handler...";
 	server->SetupAPIHandler();
 	return true;
 }

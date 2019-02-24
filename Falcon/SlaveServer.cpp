@@ -40,18 +40,21 @@ bool MountRemoteFileSys()
 {
 	// Z=cifs:\\192.168.5.201\data
 	std::string config_file = falcon::Util::GetModulePath() + "/Wit3d-Slave.conf";
-	if (!boost::filesystem::exists(config_file))
+	if (!boost::filesystem::exists(config_file)) {
+		LOG(ERROR) << "Slave configuration file not found. No remote file system to be mount";
 		return true;
+	}
 
 	FILE* f = fopen(config_file.c_str(), "r");
 	if (!f) {
-		LOG(WARNING) << "Cannot open slave config file " << config_file;
+		LOG(ERROR) << "Cannot open slave config file " << config_file;
 		return false;
 	}
 	std::string remote_filesys;
-	while (true) {
+	while (!feof(f)) {
 		char line[256] = { 0 };
-		fgets(line, 255, f);
+		if (!fgets(line, 255, f))
+			break;
 		if (!boost::starts_with(line, "mount"))
 			continue;
 		fclose(f);
@@ -59,14 +62,16 @@ bool MountRemoteFileSys()
 		if (eq) {
 			remote_filesys = eq + 1;
 			boost::trim(remote_filesys);
-		}
-		else {
-			LOG(WARNING) << "Invalid mount configuration: " << line;
+			break;
+		} else {
+			LOG(ERROR) << "Invalid mount configuration: " << line;
 			return false;
 		}
 	}
-	if (remote_filesys.empty())
+	if (remote_filesys.empty()) {
+		LOG(INFO) << "No remote file system configurated, skip mount operation";
 		return true;
+	}
 
 	LOG(INFO) << "Mount remote file system as " << remote_filesys;
 	std::string local_disk_name, remote_share_add;
@@ -79,7 +84,7 @@ bool MountRemoteFileSys()
 			remote_share_add = boost::trim_copy(val.substr(pos + 1));
 	}
 	if (local_disk_name.empty() || remote_share_add.empty()) {
-		LOG(WARNING) << "Invalid format for mount path configuration";
+		LOG(ERROR) << "Invalid format for mount path configuration";
 		return false;
 	}
 
@@ -92,12 +97,14 @@ bool MountRemoteFileSys()
 		return false;
 	boost::scoped_array<wchar_t> local_result(new wchar_t[length]);
 	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, local_disk_name.c_str(), -1, local_result.get(), length);
+	LOG(INFO) << "  Local disk name: " << local_disk_name;
 
 	length = MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, remote_share_add.c_str(), -1, NULL, 0);
 	if (length == 0)
 		return false;
 	boost::scoped_array<wchar_t> remote_result(new wchar_t[length]);
 	MultiByteToWideChar(CP_ACP, MB_PRECOMPOSED, remote_share_add.c_str(), -1, remote_result.get(), length);
+	LOG(INFO) << "  Remote share path: " << remote_share_add;
 
 	USE_INFO_2 use_info;
 	memset(&use_info, '\0', sizeof use_info);
@@ -106,10 +113,14 @@ bool MountRemoteFileSys()
 
 	DWORD ret = 0, err_num = 0;
 	ret = NetUseAdd(NULL, 2, (BYTE *)&use_info, &err_num);
-	if (ret != ERROR_SUCCESS) {
-		LOG(ERROR) << "NetUseAdd() failed, return:" << ret << ", error_no:" << err_num;
+	if (ret != NERR_Success) {
+		if (ret == ERROR_ACCESS_DENIED)
+			LOG(ERROR) << "Failed to mount remote path to local disk: Access is denied.";
+		else
+			LOG(ERROR) << "NetUseAdd() failed, return:" << ret << ", error_no:" << err_num;
 		return false;
 	}
+	LOG(INFO) << "Successfully mounted";
 	return true;
 }
 
@@ -174,6 +185,7 @@ void SlaveServer::RunServer()
 	MountRemoteFileSys();
 
 	// run event loop
+	LOG(INFO) << "Start event loop of slave service with heartbeat " << HEARTBEAT_CHECK_INTERVAL << "s...";
 	hb_timer.reset(new boost::asio::steady_timer(*ioctx, boost::asio::chrono::seconds(HEARTBEAT_CHECK_INTERVAL)));
 	hb_timer->async_wait(boost::bind(&SlaveServer::Heartbeat, this, _1));
 	ioctx->run();
@@ -443,7 +455,7 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 		DWORD read_bytes;
 		if (!ReadFile(task->out_read_pipe, buf, 256, &read_bytes, NULL))
 			break;
-		for (int i = 0; i < read_bytes; i++) {
+		for (size_t i = 0; i < read_bytes; i++) {
 			if (buf[i] == '\n' || buf[i] == '\r') {
 				if (in_endl)
 					continue;
