@@ -22,6 +22,18 @@ MachinePtr MasterServer::DataState::GetMachine(const std::string& slave_id) cons
 	return it->second;
 }
 
+MachineList MasterServer::DataState::GetMachines(MachineFilter filter)
+{
+	std::lock_guard<std::mutex> lock(machine_mutex);
+	MachineList macs;
+	MachineMap::iterator it = machines.begin();
+	for (; it != machines.end(); it++) {
+		if (filter(it->second))
+			macs.push_back(it->second);
+	}
+	return macs;
+}
+
 bool MasterServer::DataState::InsertNewJob(const std::string& job_id, const std::string& name, JobType type, const Json::Value& value, std::string& err)
 {
 	// save attributes of new job into database
@@ -131,8 +143,13 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 			if (status.IsFinished()) {
 				std::lock_guard<std::mutex> lock_macs(machine_mutex);
 				MachinePtr mac = GetMachine(task->task_status.slave_id);
-				if (mac)
+				if (mac) {
 					mac->availables += task->resources;
+					Machine::TaskList::iterator it = std::find_if(mac->exec_tasks.begin(), mac->exec_tasks.end(),
+						[&task](const Machine::Task& t) { return t.job_id == task->job_id && t.task_id == task->task_id; });
+					if (it != mac->exec_tasks.end())
+						mac->exec_tasks.erase(it);
+				}
 			}
 		}
 
@@ -190,7 +207,8 @@ void MasterServer::DataState::AddExecutingTask(const std::string& slave_id, cons
 	MachinePtr mac = GetMachine(slave_id);
 	if (mac) {
 		mac->availables -= task->resources;
-		LOG(INFO) << "Machine " << slave_id << ": " << mac->availables.ToString();
+		mac->exec_tasks.push_back(Machine::Task{job_id, task_id});
+		LOG(INFO) << "Assign task " << job_id << "." << task_id << " to machine " << slave_id << ": " << mac->availables.ToString();
 	}
 }
 
@@ -331,6 +349,30 @@ bool MasterServer::DataState::QueryNodesJson(Json::Value& result)
 		result[index] = val;
 	}
 	return true;
+}
+
+int MasterServer::DataState::SetMachineOffline(const std::string& id)
+{
+	std::lock_guard<std::mutex> lock_queue(queue_mutex), lock_machine(machine_mutex);
+	MachinePtr mac = GetMachine(id);
+	if (!mac) {
+		LOG(ERROR) << "Machine " << id << " has not registered";
+		return 0;
+	}
+	int count = 0;
+	mac->state = MachineState::Offline;
+	for (const Machine::Task& exec_task : mac->exec_tasks) {
+		JobPtr job = GetJob(exec_task.job_id);
+		if (!job)
+			continue;
+		TaskPtr task = job->GetTask(exec_task.task_id);
+		if (!task || task->task_status.IsFinished())
+			continue;
+		task->task_status = TaskStatus();
+		task->task_status.state = TaskState::Queued;
+		count++;
+	}
+	return count;
 }
 
 }

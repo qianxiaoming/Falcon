@@ -579,13 +579,15 @@ struct TasksHandler : public Handler<SlaveServer>
 		exec_info->job_id  = task->job_id;
 		exec_info->task_id = task->task_id;
 		exec_info->local_dir = boost::str(boost::format("%s/%s/%s") % server->GetTaskDir() % task->job_id % task->task_id);
-		LOG(INFO) << "Create task local directory " << exec_info->local_dir;
-		if (!boost::filesystem::create_directories(exec_info->local_dir)) {
-			response["state"] = ToString(TaskState::Aborted);
-			response["exit_code"] = EXIT_FAILURE;
-			response["message"] = "Failed to create task local directory " + exec_info->local_dir;
-			LOG(ERROR) << response["message"].asString();
-			return response.toStyledString();
+		if (!boost::filesystem::exists(exec_info->local_dir)) {
+			LOG(INFO) << "Create task local directory " << exec_info->local_dir;
+			if (!boost::filesystem::create_directories(exec_info->local_dir)) {
+				response["state"] = ToString(TaskState::Aborted);
+				response["exit_code"] = EXIT_FAILURE;
+				response["message"] = "Failed to create task local directory " + exec_info->local_dir;
+				LOG(ERROR) << response["message"].asString();
+				return response.toStyledString();
+			}
 		}
 		LOG(INFO) << "Create stdout/stderr file for new task";
 		exec_info->out_file_path = boost::str(boost::format("%s/%s.out") % exec_info->local_dir % task->task_id);

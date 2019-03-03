@@ -273,6 +273,8 @@ static void TaskScheduleLoop(MasterServer* server, ScheduleEventQueue& sched_que
 			// wait all task to be dispatched
 			int undispatched = dispatch_queue.Wait();
 			LOG(INFO) << "Schedule cycle done and " << (total - undispatched) << "/" << total << " tasks have been dispatched";
+			if (undispatched > 0)
+				server->NotifyScheduleEvent(ScheduleEvent::TaskEnqueue);
 		}
 
 		ScheduleEvent evt;
@@ -348,8 +350,14 @@ void MasterServer::Run()
 	std::thread dispatch_thread(dispatch_thread_func, this, config.dispatch_num_threads);
 	dispatch_thread.detach();
 
+	// start slave check timer
+	timer_ioctx = boost::make_shared<boost::asio::io_context>();
+	slave_timer.reset(new boost::asio::steady_timer(*timer_ioctx, boost::asio::chrono::seconds(GetConfig().slave_heartbeat / 2)));
+	slave_timer->async_wait(boost::bind(&MasterServer::SlaveCheck, this, _1));
+	timer_ioctx->run();
+
 	// wait all threads
-	std::unique_lock <std::mutex> lock(mutex);
+	std::unique_lock<std::mutex> lock(mutex);
 	cond.wait(lock, [&worker_threads] { return worker_threads == 0; });
 	LOG(INFO) << "Master server is going to shutdown";
 }
@@ -376,6 +384,29 @@ int MasterServer::StopService()
 void MasterServer::NotifyScheduleEvent(ScheduleEvent evt)
 {
 	sched_event_queue.enqueue(evt);
+}
+
+void MasterServer::SlaveCheck(const boost::system::error_code& e)
+{
+	time_t current = time(NULL);
+	MachineList macs = State().GetMachines([](MachinePtr mac) { return mac->state == MachineState::Online; });
+	for (MachinePtr mac : macs) {
+		if ((current - mac->heartbeat) > config.slave_heartbeat * 2) {
+			// missing 2 hearbeats of this machine, set it to be offline
+			struct tm t;
+			localtime_s(&t, &mac->heartbeat);
+			LOG(WARNING) << "No heartbeat received for " << mac->id << " since " << t.tm_hour << ":" << t.tm_min << ":" << t.tm_sec << ", set it to Offline";
+			int num_tasks = State().SetMachineOffline(mac->id);
+			if (num_tasks) {
+				LOG(INFO) << num_tasks << " task(s) executing on it are set to Queued";
+				NotifyScheduleEvent(ScheduleEvent::TaskEnqueue);
+			}
+		}
+	}
+	if (!IsStopped()) {
+		slave_timer->expires_at(slave_timer->expiry() + boost::asio::chrono::seconds(GetConfig().slave_heartbeat / 2));
+		slave_timer->async_wait(boost::bind(&MasterServer::SlaveCheck, this, _1));
+	}
 }
 
 }

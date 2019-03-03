@@ -320,7 +320,6 @@ struct SlavesHandler : public Handler<MasterServer>
 // handler for "/cluster/heartbeats" endpoint
 struct HeartbeatsHandler : public Handler<MasterServer>
 {
-	// register new slave
 	virtual std::string Post(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, const std::string& body, http::status& status)
 	{
 		Json::Value value;

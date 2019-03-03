@@ -157,6 +157,12 @@ struct Machine
 	LabelList      labels;
 	ResourceSet    resources;
 
+	struct Task
+	{
+		std::string job_id;
+		std::string task_id;
+	};
+	typedef std::list<Task> TaskList;
 	TaskList       exec_tasks;
 	ResourceSet    availables;
 	time_t         online;
@@ -164,6 +170,7 @@ struct Machine
 };
 typedef boost::shared_ptr<Machine> MachinePtr;
 typedef std::map<std::string, MachinePtr> MachineMap;
+typedef std::list<MachinePtr> MachineList;
 
 }
 

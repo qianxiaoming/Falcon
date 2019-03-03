@@ -30,7 +30,7 @@ struct MasterConfig
 	int dispatch_try_times;
 };
 
-enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin, TaskFinished };
+enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin, TaskEnqueue, TaskFinished };
 typedef ::moodycamel::BlockingConcurrentQueue<ScheduleEvent> ScheduleEventQueue;
 
 struct DispatchTask
@@ -54,6 +54,8 @@ struct DispatchTaskQueue
 	::moodycamel::BlockingConcurrentQueue<DispatchTask*> tasks;
 	::moodycamel::BlockingConcurrentQueue<int> done;
 };
+
+typedef boost::scoped_ptr<boost::asio::steady_timer> SlaveTimerPtr;
 
 class MasterServer : public ServerBase
 {
@@ -100,6 +102,8 @@ public:
 		const std::string& body,
 		http::status& status);
 
+	void SlaveCheck(const boost::system::error_code& e);
+
 	void NotifyScheduleEvent(ScheduleEvent evt);
 
 	MasterConfig& GetConfig() { return config; }
@@ -120,6 +124,8 @@ public:
 
 		JobPtr GetJob(const std::string& job_id) const;
 		MachinePtr GetMachine(const std::string& slave_id) const;
+		typedef boost::function<bool(MachinePtr)> MachineFilter;
+		MachineList GetMachines(MachineFilter filter);
 		bool InsertNewJob(const std::string& job_id, const std::string& name, JobType type, const Json::Value& value, std::string& err);
 		std::string RegisterMachine(const std::string& name, const std::string& addr, uint16_t port, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
 		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const TaskStatus& status);
@@ -127,6 +133,7 @@ public:
 		bool Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished);
 		void GetExecutingTasks(TaskList& tasks, const std::string& job_id = std::string());
 		bool SetJobSchedulable(const std::string& job_id, bool schedulable);
+		int  SetMachineOffline(const std::string& id);
 
 		bool QueryJobsJson(const std::vector<std::string>& ids, Json::Value& result);
 		bool QueryNodesJson(Json::Value& result);
@@ -146,6 +153,9 @@ private:
 
 	IOContextPtr       slave_ioctx;
 	ListenerPtr        slave_listener;
+
+	IOContextPtr       timer_ioctx;
+	SlaveTimerPtr      slave_timer;
 
 	ScheduleEventQueue sched_event_queue;
 	DispatchTaskQueue  dispatch_task_queue;
