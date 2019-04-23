@@ -3,6 +3,13 @@
 
 namespace falcon {
 
+static float CeilFloat(float v)
+{
+	int t = int(v * 10 + 0.5);
+	if (t < 0) t = 0;
+	return t / 10.0f;
+}
+
 ResourceSet& ResourceSet::operator+=(const ResourceSet& other)
 {
 	for (auto& item : other.items) {
@@ -10,10 +17,21 @@ ResourceSet& ResourceSet::operator+=(const ResourceSet& other)
 		if (it == items.end())
 			items.insert(item);
 		else {
-			if (it->second.type == ResourceClaim::ValueType::Int)
-				it->second.value.ival += item.second.value.ival;
-			else
-				it->second.value.fval += item.second.value.fval;
+			if (it->second.type == ResourceClaim::ValueType::Int) {
+				if (item.second.type == ResourceClaim::ValueType::Int)
+					it->second.value.ival += item.second.value.ival;
+				else {
+					it->second.type = ResourceClaim::ValueType::Float;
+					it->second.value.fval = CeilFloat(it->second.value.ival + item.second.value.fval);
+				}
+			}
+			else {
+				if (item.second.type == ResourceClaim::ValueType::Int)
+					it->second.value.fval += item.second.value.ival;
+				else
+					it->second.value.fval += item.second.value.fval;
+				it->second.value.fval = CeilFloat(it->second.value.fval);
+			}
 		}
 	}
 	return *this;
@@ -21,13 +39,26 @@ ResourceSet& ResourceSet::operator+=(const ResourceSet& other)
 
 ResourceSet& ResourceSet::operator-=(const ResourceSet& other)
 {
+	float tt = CeilFloat(1.499999f);
+	tt = CeilFloat(1.500011f);
 	for (auto& item : other.items) {
 		auto it = items.find(item.first);
 		if (it != items.end()) {
-			if (it->second.type == ResourceClaim::ValueType::Int)
-				it->second.value.ival -= item.second.value.ival;
-			else
-				it->second.value.fval -= item.second.value.fval;
+			if (it->second.type == ResourceClaim::ValueType::Int) {
+				if (item.second.type == ResourceClaim::ValueType::Int)
+					it->second.value.ival -= item.second.value.ival;
+				else {
+					it->second.type = ResourceClaim::ValueType::Float;
+					it->second.value.fval = CeilFloat(it->second.value.ival - item.second.value.fval);
+				}
+			}
+			else {
+				if (item.second.type == ResourceClaim::ValueType::Int)
+					it->second.value.fval -= item.second.value.ival;
+				else
+					it->second.value.fval -= item.second.value.fval;
+				it->second.value.fval = CeilFloat(it->second.value.fval);
+			}
 		}
 	}
 	return *this;
@@ -64,8 +95,10 @@ ResourceSet& IncResourceValue(ResourceSet& res, const std::string& name, T val)
 	else {
 		if (it->second.type == ResourceClaim::ValueType::Int)
 			it->second.value.ival += int(val);
-		else
+		else {
 			it->second.value.fval += float(val);
+			CeilFloat(it->second.value.fval);
+		}
 	}
 	return res;
 }
@@ -88,8 +121,10 @@ ResourceSet& DecResourceValue(ResourceSet& res, const std::string& name, T val)
 		return res;
 	if (it->second.type == ResourceClaim::ValueType::Int)
 		it->second.value.ival -= int(val);
-	else
+	else {
 		it->second.value.fval -= float(val);
+		CeilFloat(it->second.value.fval);
+	}
 	return res;
 }
 
@@ -117,15 +152,46 @@ Json::Value ResourceSet::ToJson() const
 	return val;
 }
 
-bool ResourceSet::IsSatisfiable(const ResourceSet& other) const
+bool ResourceSet::IsSatisfiable(const ResourceSet& other, std::string& reason) const
 {
 	for (const auto& v : other.items) {
 		ResourceClaim::const_iterator it = items.find(v.first);
-		if (it == items.end())
+		if (it == items.end()) {
+			reason = "required resource " + v.first + " not found in machine";
 			return false;
-		if ((it->second.type == ValueType::Int   && it->second.value.ival < v.second.value.ival) ||
-			(it->second.type == ValueType::Float && it->second.value.fval < v.second.value.fval))
-			return false;
+		}
+		if (it->second.type == ValueType::Int) {
+			if (v.second.type == ValueType::Int) {
+				if (it->second.value.ival < v.second.value.ival) {
+					reason = boost::str(boost::format("resource %s can not meet: have %d but %d required")
+						% v.first % it->second.value.ival % v.second.value.ival);
+					return false;
+				}
+			}
+			else {
+				if (it->second.value.ival < v.second.value.fval) {
+					reason = boost::str(boost::format("resource %s can not meet: have %d but %.1f required")
+						% v.first % it->second.value.ival % v.second.value.fval);
+					return false;
+				}
+			}
+		}
+		else {
+			if (v.second.type == ValueType::Int) {
+				if (it->second.value.fval < v.second.value.ival) {
+					reason = boost::str(boost::format("resource %s can not meet: have %.1f but %d required")
+						% v.first % it->second.value.fval % v.second.value.ival);
+					return false;
+				}
+			}
+			else {
+				if (it->second.value.fval < v.second.value.fval) {
+					reason = boost::str(boost::format("resource %s can not meet: have %.1f but %.1f required")
+						% v.first % it->second.value.fval % v.second.value.fval);
+					return false;
+				}
+			}
+		}
 	}
 	return true;
 }

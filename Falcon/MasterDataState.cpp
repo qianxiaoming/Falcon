@@ -288,6 +288,34 @@ bool MasterServer::DataState::QueryJobsJson(const std::vector<std::string>& ids,
 	return true;
 }
 
+void MasterServer::DataState::QueryJobsJson(bool finished, int offset, int limits, Json::Value& result)
+{
+	std::lock_guard<std::mutex> lock_queue(queue_mutex);
+	int o = 0, l = 0;
+	for (JobList::reverse_iterator it = job_queue.rbegin(); it != job_queue.rend(); it++) {
+		JobPtr job = *it;
+		if (job->job_state == JobState::Completed || job->job_state == JobState::Failed || job->job_state == JobState::Terminated) {
+			if (finished) {
+				if (o >= offset) {
+					result.append(job->ToJson());
+					l++;
+					if (l >= limits) return;
+				}
+				o++;
+			}
+		} else {
+			if (!finished) {
+				if (o >= offset) {
+					result.append(job->ToJson());
+					l++;
+					if (l >= limits) return;
+				}
+				o++;
+			}
+		}
+	}
+}
+
 bool MasterServer::DataState::QueryTasksJson(std::string job_id, const std::vector<std::string>& task_ids, Json::Value& result)
 {
 	TaskList tasks;

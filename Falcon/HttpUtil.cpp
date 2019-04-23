@@ -162,6 +162,15 @@ std::string HttpUtil::Delete(const std::string& url, const std::string& content)
 	return result;
 }
 
+static size_t HttpUploadLogWriter(char *data, size_t size, size_t nmemb, std::string *writerData)
+{
+	size_t sizes = size * nmemb;
+	if (writerData == NULL)
+		return 0;
+	writerData->append(data, sizes);
+	return sizes;
+}
+
 bool HttpUtil::UploadFile(const std::string& url, const std::string& file, uintmax_t file_size, uintmax_t chunk)
 {
 	Json::Value ret;
@@ -208,7 +217,7 @@ bool HttpUtil::UploadFile(const std::string& url, const std::string& file, uintm
 		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, buffer.get());
 		curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, upload_size);
-		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpWriter);
+		curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpUploadLogWriter);
 	
 		std::string result;
 		curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);

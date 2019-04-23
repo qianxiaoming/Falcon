@@ -18,15 +18,24 @@ struct JobsHandler : public Handler<MasterServer>
 	// get job list
 	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
 	{
-		std::vector<std::string> job_ids;
-		if (!params.empty())
-			job_ids.push_back(params.find("id")->second);
 		Json::Value response(Json::objectValue);
 		response["jobs"] = Json::Value(Json::arrayValue);
-		if (!server->State().QueryJobsJson(job_ids, response["jobs"]))
-			response["error"] = "Job identified by " + job_ids[0] + " not found";
-		else
+		if (params.find("id") != params.end()) {
+			std::vector<std::string> job_ids;
+			job_ids.push_back(params.find("id")->second);
+			if (!server->State().QueryJobsJson(job_ids, response["jobs"]))
+				response["error"] = "Job identified by " + job_ids[0] + " not found";
+			else
+				response["success"] = true;
+		} else {
+			bool finished = params.find("finished")->second == "true";
+			int offset = std::atoi(params.find("offset")->second.c_str());
+			int limits = std::atoi(params.find("limits")->second.c_str());
+			if (limits <= 0) limits = std::numeric_limits<int>::max();
+			server->State().QueryJobsJson(finished, offset, limits, response["jobs"]);
 			response["success"] = true;
+		}
+		
 		return response.toStyledString();
 	}
 	// create a new job
@@ -136,6 +145,17 @@ struct JobInfoHandler : public Handler<MasterServer>
 	}
 };
 
+// handler for "/api/v1/scheduler" endpoint
+struct SchedulerHandler : public Handler<MasterServer>
+{
+	// run schedule cycle
+	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
+	{
+		server->NotifyScheduleEvent(ScheduleEvent::UserRequired);
+		return "{\"status\": \"ok\" }";
+	}
+};
+
 // handler for "/api/v1/tasks" endpoint
 struct TasksHandler : public Handler<MasterServer>
 {
@@ -230,19 +250,14 @@ struct TaskStreamHandler : public Handler<MasterServer>
 		std::string log_file = boost::str(boost::format("%s/jobs/%s/%s.%s") % Util::GetModulePath() % job_id % task_id % type);
 		FILE* f = fopen(log_file.c_str(), "rb");
 		if (!f)
-			response["error"] = "Cannot open task stream file " + log_file;
+			response["error"] = "Cannot open task stream file " + log_file + ", please try later";
 		else {
 			int size = int(boost::filesystem::file_size(log_file));
 			if (size > 0) {
 				boost::scoped_array<char> buf(new char[size+1]);
 				memset(buf.get(), 0, size+1);
 				fread(buf.get(), 1, size, f);
-				if (strchr(buf.get(), '"') != NULL) {
-					std::string stream = buf.get();
-					boost::replace_all(stream, "\"", "\\\"");
-					response[type] = stream;
-				} else
-					response[type] = buf.get();
+				response[type] = buf.get();
 			}
 			fclose(f);
 		}
@@ -351,7 +366,7 @@ struct LogsHandler : public Handler<MasterServer>
 	
 		Json::Value response(Json::objectValue);
 		std::string log_file = boost::str(boost::format("%s/jobs/%s/%s") % Util::GetModulePath() % job_id % name);
-		FILE* f = fopen(log_file.c_str(), "wb");
+		FILE* f = fopen(log_file.c_str(), "ab+");
 		if (!f) {
 			response["error"] = boost::str(boost::format("Failed to open log file %s: %s") % log_file % strerror(errno));
 			LOG(ERROR) << response["error"].asString();
@@ -393,6 +408,7 @@ void MasterServer::SetupAPIHandler()
 	static MasterAPI v1;
 	v1.RegisterHandler("/jobs", new handler::api::JobsHandler());
 	v1.RegisterHandler("/jobinfo", new handler::api::JobInfoHandler());
+	v1.RegisterHandler("/scheduler", new handler::api::SchedulerHandler());
 	v1.RegisterHandler("/nodes", new handler::api::NodesHandler());
 	v1.RegisterHandler("/tasks", new handler::api::TasksHandler());
 	v1.RegisterHandler("/tasks/stream", new handler::api::TaskStreamHandler());

@@ -5,7 +5,7 @@
 
 namespace falcon {
 
-Scheduler::Scheduler(MasterServer* server) : master_server(server), log_sched(false)
+Scheduler::Scheduler(MasterServer* server) : master_server(server), log_sched(true)
 {
 	if (getenv("FALCON_LOG_SCHED") != NULL)
 		log_sched = strcmp(getenv("FALCON_LOG_SCHED"), "YES") == 0 || strcmp(getenv("FALCON_LOG_SCHED"), "TRUE") == 0;
@@ -62,6 +62,7 @@ Scheduler::Table Scheduler::ScheduleTasks()
 			break; // no more job to schedule
 
 		for (const TaskPtr& task : sched_tasks) {
+			LOG(INFO) << "Scheduling task " << sched_job->job_id << "." << task->task_id << "...";
 			std::vector<Machine*> available_macs;
 			// filter slaves according to task constraints
 			for (Machine& mac : machines) {
@@ -78,8 +79,11 @@ Scheduler::Table Scheduler::ScheduleTasks()
 					continue;
 
 				// filter slaves according to task resource requests
-				if (!mac.availables.IsSatisfiable(task->resources))
+				std::string reason;
+				if (!mac.availables.IsSatisfiable(task->resources, reason)) {
+					LOG(INFO) << "  Node " << mac.name << ": " << reason;
 					continue;
+				}
 				available_macs.push_back(&mac);
 			}
 
@@ -124,6 +128,7 @@ Scheduler::Table Scheduler::ScheduleTasks()
 
 				// reduce the resouce amount for selected slave
 				mac_caps[0].mac->availables -= task->resources;
+				LOG(INFO) << "Machine " << mac_caps[0].mac->name << " is scheduled to execute task " << sched_job->job_id << "." << task->task_id;
 			}
 		}
 	}

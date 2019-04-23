@@ -30,7 +30,7 @@ struct MasterConfig
 	int dispatch_try_times;
 };
 
-enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin, TaskEnqueue, TaskFinished };
+enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin, TaskEnqueue, TaskFinished, UserRequired };
 typedef ::moodycamel::BlockingConcurrentQueue<ScheduleEvent> ScheduleEventQueue;
 
 struct DispatchTask
@@ -136,6 +136,7 @@ public:
 		int  SetMachineOffline(const std::string& id);
 
 		bool QueryJobsJson(const std::vector<std::string>& ids, Json::Value& result);
+		void QueryJobsJson(bool finished, int offset, int limits, Json::Value& result);
 		bool QueryNodesJson(Json::Value& result);
 		bool QueryTasksJson(std::string job_id, const std::vector<std::string>& task_ids, Json::Value& result);
 	};

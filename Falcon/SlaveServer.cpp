@@ -18,7 +18,7 @@ const int HEARTBEAT_CHECK_INTERVAL = 1;
 
 SlaveServer::SlaveServer() 
 	: cpu_count(0), cpu_frequency(0), slave_addr("0.0.0.0"), slave_port(SLAVE_LISTEN_PORT), registered(false),
-	  hb_interval(5), hb_elapsed(0), hb_counter(0)
+	  hb_interval(5), hb_elapsed(0), hb_counter(0), hb_error(0)
 {
 }
 
@@ -111,13 +111,13 @@ bool MountRemoteFileSys()
 	use_info.ui2_local = local_result.get();
 	use_info.ui2_remote = remote_result.get();
 
-	DWORD ret = 0, err_num = 0;
-	ret = NetUseAdd(NULL, 2, (BYTE *)&use_info, &err_num);
+	DWORD ret = 0;
+	ret = NetUseAdd(NULL, 2, (BYTE *)&use_info, NULL);
 	if (ret != NERR_Success) {
 		if (ret == ERROR_ACCESS_DENIED)
 			LOG(ERROR) << "Failed to mount remote path to local disk: Access is denied.";
 		else
-			LOG(ERROR) << "NetUseAdd() failed, return:" << ret << ", error_no:" << err_num;
+			LOG(ERROR) << "Mount remote path failed with " << ret << ": " << Util::GetErrorMessage(ret);
 		return false;
 	}
 	LOG(INFO) << "Successfully mounted";
@@ -141,26 +141,23 @@ bool SlaveServer::RegisterSlave()
 
 	reg_info["resources"] = slave_resources.ToJson();
 
-	int max_try_count = 10, try_count = 0;
+	int try_count = 0;
+	std::string request = reg_info.toStyledString();
 	while (!IsStopped()) {
-		std::string request = reg_info.toStyledString();
 		std::string result = HttpUtil::Post(master_addr + "/cluster/slaves", request);
-		if (result.empty()) {
-			LOG(ERROR) << "Failed to register salve server! Try again later.";
-			std::this_thread::sleep_for(std::chrono::seconds((int)std::pow(2, try_count)));
+		Json::Value response;
+		if (!Util::ParseJsonFromString(result, response)) {
+			LOG(ERROR) << "Invalid response from master server: " << result;
+			return false;
+		}
+		if (response.isMember("error")) {
+			LOG(ERROR) << "Failed to register in master server: " << response["error"].asString();
 			try_count++;
-			if (try_count > max_try_count)
-				break;
+			if ((try_count % 20) == 0)
+				LOG(INFO) << "Already try " << try_count << " times to register slave server";
+			std::this_thread::sleep_for(std::chrono::seconds(5));
+			continue;
 		} else {
-			Json::Value response;
-			if (!Util::ParseJsonFromString(result, response)) {
-				LOG(ERROR) << "Invalid response from master server: " << result;
-				return false;
-			}
-			if (response.isMember("error")) {
-				LOG(ERROR) << "Failed to register in master server: " << response["error"].asString();
-				return false;
-			}
 			cluster_name = response["cluster"].asString();
 			slave_id     = response["id"].asString();
 			slave_addr   = response["addr"].asString();
@@ -250,6 +247,7 @@ bool SlaveServer::CollectSystemInfo()
 	Util::GetCPUInfo(proc_name, cpu_count, cpu_frequency);
 	if (cpu_count == 0 || cpu_frequency == 0)
 		return false;
+	//cpu_count = 12;
 	slave_resources.Set(RESOURCE_CPU, float(cpu_count));
 	slave_resources.Set(RESOURCE_FREQ, cpu_count*cpu_frequency);
 	slave_resources.Set(RESOURCE_MEM, Util::GetTotalMemory());
@@ -355,6 +353,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 	Json::Value hb_message(Json::objectValue);
 	hb_message["id"] = slave_id;
 	TaskExecInfoMap finished_tasks;
+	std::list<TaskExecInfoPtr> reset_tasks;
 	Json::Value updates(Json::arrayValue);
 	do {
 		std::unique_lock<std::mutex> lock_execs(exec_mutex);
@@ -363,7 +362,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 			TaskExecInfoPtr task = it->second;
 			if (task->heartbeat == -1) {
 				std::unique_lock<std::mutex> lock_task(task->mtx);
-				task->heartbeat = hb_counter; // reset heartbeat flag
+				reset_tasks.push_back(task);
 				// this task's status has changed
 				Json::Value v(Json::objectValue);
 				v["job_id"] = task->job_id;
@@ -407,10 +406,16 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 		std::string result = HttpUtil::Post(master_addr + "/cluster/heartbeats", hb_message.toStyledString());
 		Json::Value response;
 		if (!Util::ParseJsonFromString(result, response) || response.isMember("error")) {
-			// TODO: save finished tasks into local file
 			LOG(WARNING) << "Failed to send heartbeat to master " << master_addr << ": " << (response.isNull() ? result : Util::JsonToString(response));
+			hb_error++;
+			if (hb_error >= 3) {
+				RegisterSlave();
+				hb_error = 0;
+			}
 		} else {
-			//DLOG(INFO) << "Success: " << Util::JsonToString(response);
+			for (auto& task : reset_tasks)
+				task->heartbeat = hb_counter; // reset heartbeat flag
+			hb_error = 0;
 		}
 	}
 	if (!IsStopped()) {
@@ -423,11 +428,12 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 {
 	// read std error output and save to error file
 	std::thread err_thread([&task]() {
-		char buf[256];
+		const int BUFFER_LEN = 2048;
+		char buf[BUFFER_LEN] = { 0 };
 		while (true) {
-			DWORD read_bytes;
-			memset(buf, 0, 256);
-			if (!ReadFile(task->err_read_pipe, buf, 256, &read_bytes, NULL))
+			DWORD read_bytes = 0;
+			memset(buf, 0, BUFFER_LEN);
+			if (!::ReadFile(task->err_read_pipe, buf, BUFFER_LEN-1, &read_bytes, NULL))
 				break;
 			if (read_bytes > 0) {
 				char *cur = buf, *pos = buf;
@@ -452,8 +458,8 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 	bool in_endl = false;
 	while (true) {
 		char buf[256] = { 0 };
-		DWORD read_bytes;
-		if (!ReadFile(task->out_read_pipe, buf, 256, &read_bytes, NULL))
+		DWORD read_bytes = 0;
+		if (!::ReadFile(task->out_read_pipe, buf, 256, &read_bytes, NULL))
 			break;
 		for (size_t i = 0; i < read_bytes; i++) {
 			if (buf[i] == '\n' || buf[i] == '\r') {
@@ -515,6 +521,8 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 	if (exit_code != ERROR_PROCESS_ABORTED) {
 		// transfer stdout and stderr files to cluster master
 		auto UploadTaskLogFile = [&task](const std::string& file_path, const std::string& master_addr) {
+			if (!boost::filesystem::exists(file_path))
+				return;
 			uintmax_t out_size = boost::filesystem::file_size(file_path);
 			if (out_size != 0) {
 				LOG(INFO) << "Upload log file for task " << task->job_id << "." << task->task_id << ": " << file_path;

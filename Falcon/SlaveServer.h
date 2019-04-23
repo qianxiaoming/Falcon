@@ -116,6 +116,7 @@ private:
 	int                       hb_interval;
 	int                       hb_elapsed;
 	int                       hb_counter;
+	int                       hb_error;
 	HeartbeatTimerPtr         hb_timer;
 
 	IOContextPtr              ioctx;

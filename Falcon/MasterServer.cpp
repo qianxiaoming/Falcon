@@ -193,6 +193,7 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 		request["task_id"] = task->task_id;
 		request["content"] = task->content;
 		std::string result = HttpUtil::Post(boost::str(boost::format("%s/tasks") % task->slave_id), request.toStyledString());
+		LOG(INFO) << "Dispatch result: " << result;
 		Json::Value response;
 		if (!Util::ParseJsonFromString(result, response))
 			LOG(ERROR) << "Invalid response from slave: " << result;
@@ -216,16 +217,20 @@ static void DispatchTaskLoop(MasterServer* server, DispatchTaskQueue& task_queue
 				server->State().UpdateTaskStatus(task->job_id, task->task_id, status);
 				if (state == TaskState::Executing)
 					server->State().AddExecutingTask(task->slave_id, task->job_id, task->task_id);
+				LOG(INFO) << "Task " << task->job_id << "." << task->task_id << " dispatched";
 			}
 		}
 		
 		if (!dispatched) {
 			task->dispatch_count++;
-			if (task->dispatch_count < server->GetConfig().dispatch_try_times)
+			if (task->dispatch_count < server->GetConfig().dispatch_try_times) {
 				task_queue.Enqueue(task.release());
+				LOG(ERROR) << "Put this task into dispatch queue and try again";
+			}
 			else {
 				undispatched++;
 				server->State().UpdateTaskStatus(task->job_id, task->task_id, TaskStatus(TaskState::Queued));
+				LOG(ERROR) << "Put this task into task queue and schedule it again";
 			}
 		}
 	}
@@ -277,8 +282,10 @@ static void TaskScheduleLoop(MasterServer* server, ScheduleEventQueue& sched_que
 				server->NotifyScheduleEvent(ScheduleEvent::TaskEnqueue);
 		}
 
+		LOG(INFO) << "Waiting schedule event queue...";
 		ScheduleEvent evt;
 		sched_queue.wait_dequeue(evt);
+		LOG(INFO) << "Schedule event received: " << int(evt);
 		if (evt != ScheduleEvent::Stop) {
 			// dequeue all schedule events in notify queue
 			while (sched_queue.try_dequeue(evt)) {

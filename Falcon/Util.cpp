@@ -23,7 +23,9 @@ std::string Util::GetModulePath()
 	::GetModuleFileNameA(NULL, module_name, 256);
 	if (char* pos = strrchr(module_name, '\\')) {
 		*pos = 0;
-		return module_name;
+		std::string full_path = module_name;
+		boost::replace_all(full_path, "\\", "/");
+		return full_path;
 	}
 	return "";
 }
@@ -134,6 +136,24 @@ std::string Util::GetLastErrorMessage(int* code)
 
 	if (code)
 		*code = int(dw);
+	return errmsg;
+}
+
+std::string Util::GetErrorMessage(int code)
+{
+	DWORD dw = code;
+	LPVOID lpMsgBuf = NULL;
+	FormatMessage(
+		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		FORMAT_MESSAGE_FROM_SYSTEM |
+		FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL,
+		dw,
+		MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		(LPTSTR)&lpMsgBuf,
+		0, NULL);
+	std::string errmsg = (LPTSTR)lpMsgBuf;
+	LocalFree(lpMsgBuf);
 	return errmsg;
 }
 

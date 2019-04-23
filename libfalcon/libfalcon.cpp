@@ -42,7 +42,7 @@ std::string ResourceClaim::ToString() const
 		if (it->second.type == ResourceClaim::ValueType::Int)
 			oss << it->second.value.ival << ";";
 		else
-			oss << it->second.value.fval << ";";
+			oss << it->second.value.fval << "f;";
 		it++;
 	}
 	return oss.str();
@@ -264,7 +264,30 @@ JobPtr ComputingCluster::QueryJob(const std::string& id) const
 
 JobList ComputingCluster::QueryJobList() const
 {
-	std::string result = HttpUtil::Get(server_addr + "/api/v1/jobs");
+	std::string result = HttpUtil::Get(server_addr + "/api/v1/jobs?finished=false&offset=0&limits=-1");
+	Json::Value response;
+	if (!ParseJsonFromString(result, response))
+		return JobList();
+	if (response.isMember("error")) {
+		LOG(ERROR) << "Unable to get job list: " << response["error"].asString();
+		return JobList();
+	}
+
+	JobList jobs;
+	const Json::Value& jobs_json = response["jobs"];
+	for (Json::ArrayIndex i = 0; i < jobs_json.size(); i++) {
+		const Json::Value& job_json = jobs_json[i];
+		JobPtr job(new Job(const_cast<ComputingCluster*>(this), job_json["id"].asString()));
+		FromJsonValue(job->GetSpec(), job_json);
+		jobs.push_back(job);
+	}
+	return std::move(jobs);
+}
+
+JobList ComputingCluster::QueryHistoryJobList(int offset, int limits) const
+{
+	std::string url = boost::str(boost::format("%s/api/v1/jobs?finished=true&offset=%d&limits=%d") % server_addr % offset % limits);
+	std::string result = HttpUtil::Get(url);
 	Json::Value response;
 	if (!ParseJsonFromString(result, response))
 		return JobList();
@@ -412,10 +435,10 @@ std::string Job::GetTaskStdOutput(std::string task_id)
 	std::string result = HttpUtil::Get(request);
 	Json::Value response;
 	if (!ParseJsonFromString(result, response))
-		return false;
+		return "";
 	if (response.isMember("error")) {
 		LOG(ERROR) << "Failed to get task " << job_spec.job_id << "." << task_id << " stdout: " << response["error"].asString();
-		return false;
+		return "";
 	}
 	return response["out"].asString();
 }
@@ -427,10 +450,10 @@ std::string Job::GetTaskStdError(std::string task_id)
 	std::string result = HttpUtil::Get(request);
 	Json::Value response;
 	if (!ParseJsonFromString(result, response))
-		return false;
+		return "";
 	if (response.isMember("error")) {
 		LOG(ERROR) << "Failed to get task " << job_spec.job_id << "." << task_id << " stderr: " << response["error"].asString();
-		return false;
+		return "";
 	}
 	return response["err"].asString();
 }

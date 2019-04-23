@@ -30,6 +30,8 @@ struct Util
 	static void GetGPUInfo(std::string& gpu_name, int& num_gpus, int& gpu_cores);
 
 	static std::string GetLastErrorMessage(int* code);
+
+	static std::string GetErrorMessage(int code);
 };
 
 struct LockGuard

@@ -127,6 +127,8 @@ public:
 
 	JobList QueryJobList() const;
 
+	JobList QueryHistoryJobList(int offset = 0, int limits = -1) const;
+
 	NodeList GetNodeList() const;
 
 private:

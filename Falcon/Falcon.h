@@ -13,8 +13,8 @@
 
 namespace falcon {
 
-#define FALCON_MASTER_SERVER_NAME "Falcon-Master"
-#define FALCON_SLAVE_SERVER_NAME  "Falcon-Slave"
+#define FALCON_MASTER_SERVER_NAME "Wit3D-Master"
+#define FALCON_SLAVE_SERVER_NAME  "Wit3D-Slave"
 
 struct ResourceSet : public ResourceClaim
 {
@@ -31,7 +31,7 @@ struct ResourceSet : public ResourceClaim
 
 	Json::Value ToJson() const;
 
-	bool IsSatisfiable(const ResourceSet& other) const;
+	bool IsSatisfiable(const ResourceSet& other, std::string& reason) const;
 };
 
 struct Job;

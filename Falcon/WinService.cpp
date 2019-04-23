@@ -56,8 +56,9 @@ void WINAPI ServiceHandler(DWORD fdwControl)
 
 void WINAPI ServiceMain(int argc, char** argv)
 {
-	FLAGS_log_dir = falcon::Util::GetModulePath();
+	FLAGS_log_dir = falcon::Util::GetModulePath()+"/logs";
 	FLAGS_logbuflevel = -1;
+	boost::filesystem::create_directories(FLAGS_log_dir);
 	google::InitGoogleLogging(server_base->GetName());
 
 	ServiceStatus.dwServiceType = SERVICE_WIN32;
@@ -83,98 +84,93 @@ void WINAPI ServiceMain(int argc, char** argv)
 	LOG(INFO) << "Falcon service started";
 }
 
-int main(int argc, const char *argv[])
-{
-	if (strcmp(argv[1], "master") == 0)
-		server_base = falcon::MasterServer::Instance();
-	else if (strcmp(argv[1], "slave") == 0) {
-		falcon::SlaveServer* slave = falcon::SlaveServer::Instance();
-		if (argc >= 3)
-			slave->SetSlavePort(std::atoi(argv[2]));
-		else if (char* port = getenv("FALCON_SLAVE_PORT"))
-			slave->SetSlavePort(std::atoi(port));
-		else
-			slave->SetSlavePort(falcon::SLAVE_LISTEN_PORT);
-
-		std::string config_file = falcon::Util::GetModulePath() + "/Falcon-Slave.conf";
-		if (argc >= 4)
-			slave->SetMasterAddr(argv[3]);
-		else if (char* addr = getenv("FALCON_MASTER_IP"))
-			slave->SetMasterAddr(addr);
-		else if (boost::filesystem::exists(config_file)) {
-			FILE* f = fopen(config_file.c_str(), "r");
-			if (f) {
-				char ip[128] = { 0 };
-				fgets(ip, 128, f);
-				fclose(f);
-				char* eq = strchr(ip, '=');
-				if (eq) {
-					std::string master_ip = eq + 1;
-					slave->SetMasterAddr(boost::trim_copy(master_ip));
-				} else
-					return EXIT_FAILURE;
-			}
-		} else
-			slave->SetMasterAddr("127.0.0.1");
-		server_base = slave;
-	} else
-		return EXIT_FAILURE;
-
-	SERVICE_TABLE_ENTRY ServiceTable[2];
-	ServiceTable[0].lpServiceName = (LPSTR)server_base->GetName();
-	ServiceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
-	ServiceTable[1].lpServiceName = NULL;
-	ServiceTable[1].lpServiceProc = NULL;
-
-	StartServiceCtrlDispatcher(ServiceTable);
-	return 0;
-}
-
 //int main(int argc, const char *argv[])
 //{
-//	char module_name[256] = { 0 };
-//	::GetModuleFileNameA(NULL, module_name, 256);
-//	if (char* pos = strrchr(module_name, '\\')) {
-//		*pos = 0;
-//		FLAGS_log_dir = module_name;
-//		FLAGS_alsologtostderr = true;
-//	}
-//	std::string role = argv[1];
-//	std::string logging = std::string("falcon-") + role;
-//	FLAGS_log_dir = falcon::Util::GetModulePath();
-//	FLAGS_logbuflevel = -1;
-//	google::InitGoogleLogging(logging.c_str());
+//	if (strcmp(argv[1], "master") == 0)
+//		server_base = falcon::MasterServer::Instance();
+//	else if (strcmp(argv[1], "slave") == 0) {
+//		falcon::SlaveServer* slave = falcon::SlaveServer::Instance();
+//		if (argc >= 3)
+//			slave->SetSlavePort(std::atoi(argv[2]));
+//		else if (char* port = getenv("WIT3D_SLAVE_PORT"))
+//			slave->SetSlavePort(std::atoi(port));
+//		else
+//			slave->SetSlavePort(falcon::SLAVE_LISTEN_PORT);
 //
-//	if (role == "slave") {
-//		falcon::SlaveServer* slave_server = falcon::SlaveServer::Instance();
-//		slave_server->SetSlavePort(argc > 2 ? std::atoi(argv[2]) : falcon::SLAVE_LISTEN_PORT);
-//		slave_server->SetMasterAddr(argc > 3 ? argv[3] : "127.0.0.1");
-//		if (!slave_server->StartServer())
-//			return EXIT_FAILURE;
-//		else {
-//			std::thread service_thread(boost::bind(&falcon::SlaveServer::RunServer, slave_server));
-//			service_thread.detach();
-//		}
+//		std::string config_file = falcon::Util::GetModulePath() + "/Wit3d-Slave.conf";
+//		if (argc >= 4)
+//			slave->SetMasterAddr(argv[3]);
+//		else if (char* addr = getenv("WIT3D_MASTER_IP"))
+//			slave->SetMasterAddr(addr);
+//		else if (boost::filesystem::exists(config_file)) {
+//			FILE* f = fopen(config_file.c_str(), "r");
+//			if (f) {
+//				char ip[128] = { 0 };
+//				fgets(ip, 128, f);
+//				fclose(f);
+//				char* eq = strchr(ip, '=');
+//				if (eq) {
+//					std::string master_ip = eq + 1;
+//					slave->SetMasterAddr(boost::trim_copy(master_ip));
+//				} else
+//					return EXIT_FAILURE;
+//			}
+//		} else
+//			slave->SetMasterAddr("127.0.0.1");
+//		server_base = slave;
+//	} else
+//		return EXIT_FAILURE;
 //
-//		getchar();
-//		slave_server->StopServer();
-//		Sleep(3000);
-//		falcon::SlaveServer::Destory();
-//	} else {
-//		std::unique_ptr<falcon::MasterServer> master_server(new falcon::MasterServer());
-//		if (!master_server->StartServer())
-//			return EXIT_FAILURE;
-//		else {
-//			std::thread service_thread(boost::bind(&falcon::MasterServer::RunServer, master_server.get()));
-//			service_thread.detach();
-//		}
-//		
-//		getchar();
-//		master_server->StopServer();
-//		Sleep(3000);
-//		falcon::MasterServer::Destory();
-//	}
+//	SERVICE_TABLE_ENTRY ServiceTable[2];
+//	ServiceTable[0].lpServiceName = (LPSTR)server_base->GetName();
+//	ServiceTable[0].lpServiceProc = (LPSERVICE_MAIN_FUNCTION)ServiceMain;
+//	ServiceTable[1].lpServiceName = NULL;
+//	ServiceTable[1].lpServiceProc = NULL;
 //
-//	google::ShutdownGoogleLogging();
+//	StartServiceCtrlDispatcher(ServiceTable);
 //	return 0;
 //}
+
+int main(int argc, const char *argv[])
+{
+	std::string role = argv[1];
+	std::string logging = std::string("falcon-") + role;
+	FLAGS_log_dir = falcon::Util::GetModulePath() + "/logs";
+	FLAGS_logbuflevel = -1;
+	FLAGS_alsologtostderr = true;
+	boost::filesystem::create_directories(FLAGS_log_dir);
+	google::InitGoogleLogging(logging.c_str());
+
+	if (role == "slave") {
+		falcon::SlaveServer* slave_server = falcon::SlaveServer::Instance();
+		slave_server->SetSlavePort(argc > 2 ? std::atoi(argv[2]) : falcon::SLAVE_LISTEN_PORT);
+		slave_server->SetMasterAddr(argc > 3 ? argv[3] : "127.0.0.1");
+		if (!slave_server->StartServer())
+			return EXIT_FAILURE;
+		else {
+			std::thread service_thread(boost::bind(&falcon::SlaveServer::RunServer, slave_server));
+			service_thread.detach();
+		}
+
+		getchar();
+		slave_server->StopServer();
+		Sleep(3000);
+		falcon::SlaveServer::Destory();
+	} else {
+		std::unique_ptr<falcon::MasterServer> master_server(new falcon::MasterServer());
+		if (!master_server->StartServer())
+			return EXIT_FAILURE;
+		else {
+			std::thread service_thread(boost::bind(&falcon::MasterServer::RunServer, master_server.get()));
+			service_thread.detach();
+		}
+		
+		getchar();
+		master_server->StopServer();
+		Sleep(3000);
+		falcon::MasterServer::Destory();
+	}
+
+	google::ShutdownGoogleLogging();
+	return 0;
+}
