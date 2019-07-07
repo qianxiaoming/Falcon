@@ -180,7 +180,7 @@ JobInfo::JobInfo()
 {
 }
 
-NodeInfo::NodeInfo() : state(MachineState::Unknown), online(0)
+NodeInfo::NodeInfo() : port(0), state(MachineState::Unknown), online(0)
 {
 }
 
@@ -591,6 +591,7 @@ static void FromJsonValue(NodeInfo& info, const Json::Value& value)
 {
 	info.name = value["name"].asString();
 	info.address = value["address"].asString();
+	info.port = value["port"].asInt();
 	info.os = value["os"].asString();
 	info.state = ToMachineState(value["state"].asCString());
 	info.online = value["online"].asInt64();

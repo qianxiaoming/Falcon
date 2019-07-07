@@ -11,10 +11,13 @@ int main(int argc, char* argv[])
 	int port = MASTER_CLIENT_PORT;
 	if (argc > 2)
 		port = std::atoi(argv[2]);
+	std::string addr = "127.0.0.1";
+	if (argc > 1)
+		addr = argv[1];
 	// 连接到集群
-	ComputingCluster cluster(argv[1], port);
+	ComputingCluster cluster(addr, port);
 	if (!cluster.IsConnected()) {
-		std::cerr << "Failed to connect to " << argv[1] << std::endl;
+		std::cerr << "Failed to connect to " << addr << std::endl;
 		return EXIT_FAILURE;
 	}
 	std::cout << "Cluster \"" << cluster.GetName() << "\" connected." << std::endl;
@@ -24,7 +27,7 @@ int main(int argc, char* argv[])
 	NodeList nodes = cluster.GetNodeList();
 	for (NodeInfo& node : nodes) {
 		std::cout << "  Node Name: " << node.name << std::endl;
-		std::cout << "  Address:   " << node.address << std::endl;
+		std::cout << "  Address:   " << node.address << ":" << node.port << std::endl;
 		std::cout << "  OS Name:   " << node.os << std::endl;
 		std::cout << "  State:     " << ToString(node.state) << std::endl;
 		std::cout << "  Resources: " << node.resources.ToString() << std::endl;
@@ -38,10 +41,11 @@ int main(int argc, char* argv[])
 	resources.Set(RESOURCE_CPU, 4);
 	JobSpec job_spec(JobType::Batch, "Build Model", resources);
 	job_spec.command = "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe"; // 所有任务默认使用的可执行程序
-	for (int i = 0; i < 8; i++) {
-		char name[256] = { 0 };
+	for (int i = 0; i < 16; i++) {
+		char name[256] = { 0 }, args[256] = { 0 };
 		sprintf(name, "Task %d", i);
-		job_spec.AddTask(name, job_spec.command, "some-file");
+		sprintf(args, "data file %d", i);
+		job_spec.AddTask(name, job_spec.command, args);
 	}
 	// 以下演示不同的方法向Job中增加Task
 	//// 使用AddTask可以连续追加Task。当没有特别资源需求时，可以使用简便的方法
@@ -101,10 +105,11 @@ int main(int argc, char* argv[])
 			std::cout << std::endl;
 			if (t.IsFinished()) {
 				// 任务已经结束了，输出标准流的内容
-				std::string out = job->GetTaskStdOutput(t.task_id);
-				std::string err = job->GetTaskStdError(t.task_id);
-				//std::cout << job->GetTaskStdOutput(t.task_id) << std::endl;
-				//std::cout << job->GetTaskStdError(t.task_id) << std::endl;
+				_sleep(2000);
+				std::string out = job->GetTaskStdOutput(t.task_id).substr(0, 20);
+				std::string err = job->GetTaskStdError(t.task_id).substr(0, 20);
+				std::cout << "  stdout=" << out << std::endl;
+				std::cout << "  stderr=" << err << std::endl;
 			}
 		}
 	}

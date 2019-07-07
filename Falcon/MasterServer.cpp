@@ -285,10 +285,11 @@ static void TaskScheduleLoop(MasterServer* server, ScheduleEventQueue& sched_que
 		LOG(INFO) << "Waiting schedule event queue...";
 		ScheduleEvent evt;
 		sched_queue.wait_dequeue(evt);
-		LOG(INFO) << "Schedule event received: " << int(evt);
+		LOG(INFO) << "Schedule event received: " << ToString(evt);
 		if (evt != ScheduleEvent::Stop) {
 			// dequeue all schedule events in notify queue
 			while (sched_queue.try_dequeue(evt)) {
+				LOG(INFO) << "  Dequeue event: " << ToString(evt);
 				if (evt == ScheduleEvent::Stop)
 					break;
 			}
@@ -398,7 +399,7 @@ void MasterServer::SlaveCheck(const boost::system::error_code& e)
 	time_t current = time(NULL);
 	MachineList macs = State().GetMachines([](MachinePtr mac) { return mac->state == MachineState::Online; });
 	for (MachinePtr mac : macs) {
-		if ((current - mac->heartbeat) > config.slave_heartbeat * 2) {
+		if ((current - mac->heartbeat) > config.slave_heartbeat * 3) {
 			// missing 2 hearbeats of this machine, set it to be offline
 			struct tm t;
 			localtime_s(&t, &mac->heartbeat);
@@ -413,6 +414,27 @@ void MasterServer::SlaveCheck(const boost::system::error_code& e)
 	if (!IsStopped()) {
 		slave_timer->expires_at(slave_timer->expiry() + boost::asio::chrono::seconds(GetConfig().slave_heartbeat / 2));
 		slave_timer->async_wait(boost::bind(&MasterServer::SlaveCheck, this, _1));
+	}
+}
+
+const char* ToString(ScheduleEvent evt)
+{
+	switch (evt)
+	{
+	case falcon::ScheduleEvent::Stop:
+		return "Stop";
+	case falcon::ScheduleEvent::JobSubmit:
+		return "Job Submit";
+	case falcon::ScheduleEvent::SlaveJoin:
+		return "Salve Join";
+	case falcon::ScheduleEvent::TaskEnqueue:
+		return "Task Enqueue";
+	case falcon::ScheduleEvent::TaskFinished:
+		return "Task Finished";
+	case falcon::ScheduleEvent::UserRequired:
+		return "User Required";
+	default:
+		return "Unknown";
 	}
 }
 

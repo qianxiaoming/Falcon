@@ -31,6 +31,8 @@ struct MasterConfig
 };
 
 enum class ScheduleEvent { Stop, JobSubmit, SlaveJoin, TaskEnqueue, TaskFinished, UserRequired };
+const char* ToString(ScheduleEvent evt);
+
 typedef ::moodycamel::BlockingConcurrentQueue<ScheduleEvent> ScheduleEventQueue;
 
 struct DispatchTask

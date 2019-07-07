@@ -401,7 +401,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 		hb_elapsed++;  // do nothing, just increase elapsed counter
 	else {
 		// must send heartbeat information
-		//DLOG(INFO) << "Sending heartbeat to master " << master_addr << " with " << hb_message["updates"].size() << " updates...";
+		DLOG(INFO) << "Sending heartbeat to master " << master_addr << " with " << hb_message["updates"].size() << " updates...";
 		hb_elapsed = 0;
 		std::string result = HttpUtil::Post(master_addr + "/cluster/heartbeats", hb_message.toStyledString());
 		Json::Value response;

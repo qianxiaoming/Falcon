@@ -4,10 +4,17 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 VisualStudioVersion = 14.0.25420.1
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Falcon", "Falcon\Falcon.vcxproj", "{D6999D8E-2E0E-4C8F-84A4-F6719712C8E0}"
+	ProjectSection(ProjectDependencies) = postProject
+		{F87890DB-404E-430E-9A07-EC2A49A280B3} = {F87890DB-404E-430E-9A07-EC2A49A280B3}
+	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "libfalcon", "libfalcon\libfalcon.vcxproj", "{F87890DB-404E-430E-9A07-EC2A49A280B3}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "clidemo", "clidemo\clidemo.vcxproj", "{7B53FC84-8B07-4BED-814B-4F7D165067BF}"
+	ProjectSection(ProjectDependencies) = postProject
+		{D6999D8E-2E0E-4C8F-84A4-F6719712C8E0} = {D6999D8E-2E0E-4C8F-84A4-F6719712C8E0}
+		{F87890DB-404E-430E-9A07-EC2A49A280B3} = {F87890DB-404E-430E-9A07-EC2A49A280B3}
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

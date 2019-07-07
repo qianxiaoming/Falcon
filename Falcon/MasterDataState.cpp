@@ -369,6 +369,7 @@ bool MasterServer::DataState::QueryNodesJson(Json::Value& result)
 		Json::Value val(Json::objectValue);
 		val["name"]      = mac->name;
 		val["address"]   = mac->address;
+		val["port"]      = mac->port;
 		val["os"]        = mac->os;
 		val["state"]     = ToString(mac->state);
 		val["online"]    = mac->online;

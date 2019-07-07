@@ -197,6 +197,7 @@ struct FALCON_API NodeInfo
 
 	std::string   name;
 	std::string   address;
+	int           port;
 	std::string   os;
 	MachineState  state;
 	time_t        online;
