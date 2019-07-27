@@ -37,6 +37,7 @@ MachineList MasterServer::DataState::GetMachines(MachineFilter filter)
 bool MasterServer::DataState::InsertNewJob(const std::string& job_id, const std::string& name, JobType type, const Json::Value& value, std::string& err)
 {
 	// save attributes of new job into database
+	LOG(INFO) << "Saving job " << name << "(" << job_id << ") into database...";
 	time_t submit_time = time(NULL);
 	SqliteDB db(master_db, &db_mutex);
 	std::ostringstream oss;
@@ -67,7 +68,9 @@ bool MasterServer::DataState::InsertNewJob(const std::string& job_id, const std:
 			err = "Failed to write tasks into database: " + err;
 			return false;
 		}
+		LOG(INFO) << "  Task " << task->task_name << "(" << task->task_id << ")";
 	}
+	LOG(INFO) << "Job saved with " << int(tasks.size()) << " tasks";
 	db.Unlock();
 	
 	std::lock_guard<std::mutex> lock(queue_mutex);
@@ -375,6 +378,7 @@ bool MasterServer::DataState::QueryNodesJson(Json::Value& result)
 		val["online"]    = mac->online;
 		val["labels"]    = ToString(mac->labels);
 		val["resources"] = mac->resources.ToJson();
+		val["availables"] = mac->availables.ToJson();
 		result[index] = val;
 	}
 	return true;

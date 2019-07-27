@@ -28,9 +28,14 @@ struct JobsHandler : public Handler<MasterServer>
 			else
 				response["success"] = true;
 		} else {
-			bool finished = params.find("finished")->second == "true";
-			int offset = std::atoi(params.find("offset")->second.c_str());
-			int limits = std::atoi(params.find("limits")->second.c_str());
+			bool finished = true;
+			if (params.find("finished") != params.end())
+				finished = params.find("finished")->second == "true";
+			int offset = 0, limits = -1;
+			if (params.find("offset") != params.end())
+				offset = std::atoi(params.find("offset")->second.c_str());
+			if (params.find("limits") != params.end())
+				limits = std::atoi(params.find("limits")->second.c_str());
 			if (limits <= 0) limits = std::numeric_limits<int>::max();
 			server->State().QueryJobsJson(finished, offset, limits, response["jobs"]);
 			response["success"] = true;
@@ -268,7 +273,7 @@ struct TaskStreamHandler : public Handler<MasterServer>
 // handler for "/api/v1/nodes" endpoint
 struct NodesHandler : public Handler<MasterServer>
 {
-	// get job list
+	// get node list
 	virtual std::string Get(MasterServer* server, const std::string& remote, std::string target, const URLParamMap& params, http::status& status)
 	{
 		Json::Value response(Json::objectValue);

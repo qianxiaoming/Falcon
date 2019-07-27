@@ -38,7 +38,7 @@ int main(int argc, char* argv[])
 	std::cout << "Submitting batch job..." << std::endl;
 	// 定义默认的任务资源需求：1个CPU，0个GPU，1G内存使用
 	ResourceClaim resources;
-	resources.Set(RESOURCE_CPU, 4);
+	resources.Set(RESOURCE_CPU, 1);
 	JobSpec job_spec(JobType::Batch, "Build Model", resources);
 	job_spec.command = "C:\\Temp\\BuildModel\\x64\\Release\\BuildModel.exe"; // 所有任务默认使用的可执行程序
 	for (int i = 0; i < 16; i++) {

@@ -196,6 +196,22 @@ int SlaveServer::StopServer()
 	is_stopped.store(true);
 	if (listener)
 		listener->Stop();
+
+	if (!exec_tasks.empty()) {
+		LOG(INFO) << "Terminating executing tasks...";
+		std::unique_lock<std::mutex> lock(exec_mutex);
+		int count = 0;
+		TaskExecInfoMap::iterator it = exec_tasks.begin();
+		for (; it != exec_tasks.end(); it++) {
+			if (!TerminateProcess(it->second->process_info.hProcess, ERROR_PROCESS_ABORTED)) {
+				LOG(WARNING) << "Unable to terminate process for task(" << it->first << ":" << Util::GetLastErrorMessage(NULL);
+			}
+			else
+				count++;
+		}
+		LOG(INFO) << count << " processes are terminated";
+	}
+
 	return EXIT_SUCCESS;
 }
 
@@ -397,9 +413,10 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 	} while (false);
 
 	// check if heartbeat must be send
+	bool is_stopped = IsStopped();
 	if (updates.size() == 0 && hb_elapsed < hb_interval)
 		hb_elapsed++;  // do nothing, just increase elapsed counter
-	else {
+	else if (!is_stopped) {
 		// must send heartbeat information
 		DLOG(INFO) << "Sending heartbeat to master " << master_addr << " with " << hb_message["updates"].size() << " updates...";
 		hb_elapsed = 0;
@@ -418,7 +435,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 			hb_error = 0;
 		}
 	}
-	if (!IsStopped()) {
+	if (!is_stopped) {
 		hb_timer->expires_at(hb_timer->expiry() + boost::asio::chrono::seconds(HEARTBEAT_CHECK_INTERVAL));
 		hb_timer->async_wait(boost::bind(&SlaveServer::Heartbeat, this, _1));
 	}
