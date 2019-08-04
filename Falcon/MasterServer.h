@@ -132,7 +132,7 @@ public:
 		std::string RegisterMachine(const std::string& name, const std::string& addr, uint16_t port, const std::string& os, int cpu_count, int cpu_freq, const ResourceSet& resources);
 		bool UpdateTaskStatus(const std::string& job_id, const std::string& task_id, const TaskStatus& status);
 		void AddExecutingTask(const std::string& slave_id, const std::string& job_id, const std::string& task_id);
-		bool Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished);
+		bool Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished, int& enqueued);
 		void GetExecutingTasks(TaskList& tasks, const std::string& job_id = std::string());
 		bool SetJobSchedulable(const std::string& job_id, bool schedulable);
 		int  SetMachineOffline(const std::string& id);

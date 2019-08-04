@@ -16,6 +16,8 @@ namespace falcon {
 #define FALCON_MASTER_SERVER_NAME "Wit3D-Master"
 #define FALCON_SLAVE_SERVER_NAME  "Wit3D-Slave"
 
+const int ERROR_PROCESS_RESCHEDULE = 30000;
+
 struct ResourceSet : public ResourceClaim
 {
 	ResourceSet& operator+=(const ResourceSet& other);

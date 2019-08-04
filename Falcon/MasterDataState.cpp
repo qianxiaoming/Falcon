@@ -114,7 +114,9 @@ bool MasterServer::DataState::UpdateTaskStatus(const std::string& job_id, const 
 
 		if (TaskPtr task = job->GetTask(task_id)) {
 			task->task_status.state = status.state;
-			if (status.state == TaskState::Executing) {
+			if (status.state == TaskState::Queued)
+				task->task_status = TaskStatus(TaskState::Queued);
+			else if (status.state == TaskState::Executing) {
 				if (status.exec_time > 0)
 					task->task_status.exec_time = status.exec_time;
 				if (!status.machine.empty())
@@ -215,7 +217,7 @@ void MasterServer::DataState::AddExecutingTask(const std::string& slave_id, cons
 	}
 }
 
-bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished)
+bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json::Value& updates, int& finished, int& enqueued)
 {
 	std::unique_lock<std::mutex> lock(machine_mutex);
 	MachineMap::iterator it = machines.find(slave_id);
@@ -237,10 +239,18 @@ bool MasterServer::DataState::Heartbeat(const std::string& slave_id, const Json:
 		if (t.isMember("error_msg"))
 			status.error_msg = t["error_msg"].asString();
 		if (status.IsFinished()) {
-			finished++;
-			status.finish_time = time(NULL);
-			LOG(INFO) << "Task " << t["job_id"].asString() << "." << t["task_id"].asString() << " is finished with exit code "
-				<< status.exit_code << ": " << status.error_msg;
+			if (status.exit_code == ERROR_PROCESS_RESCHEDULE) {
+				enqueued++;
+				status = TaskStatus();
+				status.state = TaskState::Queued;
+				LOG(INFO) << "Task " << t["job_id"].asString() << "." << t["task_id"].asString() << " is enqueued since slave node shutting down";
+			}
+			else {
+				finished++;
+				status.finish_time = time(NULL);
+				LOG(INFO) << "Task " << t["job_id"].asString() << "." << t["task_id"].asString() << " is finished with exit code "
+					<< status.exit_code << ": " << status.error_msg;
+			}
 		}
 		UpdateTaskStatus(t["job_id"].asString(), t["task_id"].asString(), status);
 	}

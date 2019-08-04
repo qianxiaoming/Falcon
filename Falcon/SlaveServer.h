@@ -98,6 +98,8 @@ private:
 
 	void MonitorTask(TaskExecInfoPtr task);
 
+	int  ClearTasks();
+
 	std::string               cluster_name;
 	std::string               slave_name;
 	std::string               slave_id;

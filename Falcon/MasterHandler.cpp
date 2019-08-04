@@ -349,13 +349,15 @@ struct HeartbeatsHandler : public Handler<MasterServer>
 		std::string slave_id = value["id"].asString();
 		//DLOG(INFO) << "Heartbeat from " << slave_id << " received: Task Load=" << value["load"].asInt();
 		Json::Value response(Json::objectValue);
-		int finished = 0;
-		if (server->State().Heartbeat(slave_id, value["updates"], finished)) {
+		int finished = 0, enqueued = 0;
+		if (server->State().Heartbeat(slave_id, value["updates"], finished, enqueued)) {
 			response["heartbeat"] = "ok";
 			if (finished)
 				server->NotifyScheduleEvent(ScheduleEvent::TaskFinished);
+			else if (enqueued)
+				server->NotifyScheduleEvent(ScheduleEvent::TaskEnqueue);
 		} else
-			response["heartbeat"] = "not found";
+			response["error"] = boost::str(boost::format("slave %s not registered") % slave_id);
 		return response.toStyledString();
 	}
 };

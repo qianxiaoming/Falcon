@@ -36,8 +36,9 @@ bool SlaveServer::StartServer()
 	return true;
 }
 
-bool MountRemoteFileSys()
+bool MountRemoteFileSys(bool& has_config)
 {
+	has_config = false;
 	// Z=cifs:\\192.168.5.201\data
 	std::string config_file = falcon::Util::GetModulePath() + "/Wit3d-Slave.conf";
 	if (!boost::filesystem::exists(config_file)) {
@@ -88,6 +89,7 @@ bool MountRemoteFileSys()
 		return false;
 	}
 
+	has_config = true;
 	if (!boost::ends_with(local_disk_name, ":"))
 		local_disk_name = boost::str(boost::format("%s:") % local_disk_name);
 
@@ -120,7 +122,7 @@ bool MountRemoteFileSys()
 			LOG(ERROR) << "Mount remote path failed with " << ret << ": " << Util::GetErrorMessage(ret);
 		return false;
 	}
-	LOG(INFO) << "Successfully mounted";
+	LOG(INFO) << "Successfully mounted " << remote_filesys;
 	return true;
 }
 
@@ -174,12 +176,38 @@ void SlaveServer::RunServer()
 {
 	SlaveServer* server = SlaveServer::Instance();
 	LOG(INFO) << "Slave server is running...";
+	
+	int pid = (int)GetCurrentProcessId();
+	std::string pid_file_name = boost::str(boost::format("slave-%d.pid") % slave_port);
+	FILE* fpid = fopen(pid_file_name.c_str(), "w");
+	if (fpid) {
+		char pid_str[64] = { 0 };
+		sprintf(pid_str, "%d", pid);
+		fwrite(pid_str, 1, strlen(pid_str), fpid);
+		fclose(fpid);
+	}
+	else
+		LOG(ERROR) << "Can not create pid file for slave service";
+
+	bool has_config;
+	if (!MountRemoteFileSys(has_config)) {
+		if (has_config) {
+			auto const mount_thread_func = []()
+			{
+				bool has_config = true, mounted = false;
+				while (!mounted && has_config) {
+					std::this_thread::sleep_for(std::chrono::seconds(10));
+					mounted = MountRemoteFileSys(has_config);
+				}
+			};
+			std::thread mount_thread(mount_thread_func);
+			mount_thread.detach();
+		}
+	}
 
 	// register in master server
 	if (!RegisterSlave())
 		return;
-
-	MountRemoteFileSys();
 
 	// run event loop
 	LOG(INFO) << "Start event loop of slave service with heartbeat " << HEARTBEAT_CHECK_INTERVAL << "s...";
@@ -194,25 +222,40 @@ void SlaveServer::RunServer()
 int SlaveServer::StopServer()
 {
 	is_stopped.store(true);
+
+	if (ClearTasks()) {
+		std::this_thread::sleep_for(std::chrono::seconds(HEARTBEAT_CHECK_INTERVAL * 2));
+		boost::system::error_code ec;
+		Heartbeat(ec);
+	}
+
 	if (listener)
 		listener->Stop();
 
-	if (!exec_tasks.empty()) {
-		LOG(INFO) << "Terminating executing tasks...";
-		std::unique_lock<std::mutex> lock(exec_mutex);
-		int count = 0;
-		TaskExecInfoMap::iterator it = exec_tasks.begin();
-		for (; it != exec_tasks.end(); it++) {
-			if (!TerminateProcess(it->second->process_info.hProcess, ERROR_PROCESS_ABORTED)) {
-				LOG(WARNING) << "Unable to terminate process for task(" << it->first << ":" << Util::GetLastErrorMessage(NULL);
-			}
-			else
-				count++;
-		}
-		LOG(INFO) << count << " processes are terminated";
-	}
+	std::string pid_file_name = boost::str(boost::format("slave-%d.pid") % slave_port);
+	boost::filesystem::remove(pid_file_name);
 
 	return EXIT_SUCCESS;
+}
+
+int SlaveServer::ClearTasks()
+{
+	if (exec_tasks.empty())
+		return 0;
+	
+	LOG(INFO) << "Terminating executing tasks...";
+	std::unique_lock<std::mutex> lock(exec_mutex);
+	int count = 0;
+	TaskExecInfoMap::iterator it = exec_tasks.begin();
+	for (; it != exec_tasks.end(); it++) {
+		if (!TerminateProcess(it->second->process_info.hProcess, ERROR_PROCESS_RESCHEDULE)) {
+			LOG(WARNING) << "Unable to terminate process for task(" << it->first << ":" << Util::GetLastErrorMessage(NULL);
+		}
+		else
+			count++;
+	}
+	LOG(INFO) << count << " processes are terminated";
+	return count;
 }
 
 const char* SlaveServer::GetName()
@@ -416,7 +459,7 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 	bool is_stopped = IsStopped();
 	if (updates.size() == 0 && hb_elapsed < hb_interval)
 		hb_elapsed++;  // do nothing, just increase elapsed counter
-	else if (!is_stopped) {
+	else {
 		// must send heartbeat information
 		DLOG(INFO) << "Sending heartbeat to master " << master_addr << " with " << hb_message["updates"].size() << " updates...";
 		hb_elapsed = 0;
@@ -425,8 +468,10 @@ void SlaveServer::Heartbeat(const boost::system::error_code& e)
 		if (!Util::ParseJsonFromString(result, response) || response.isMember("error")) {
 			LOG(WARNING) << "Failed to send heartbeat to master " << master_addr << ": " << (response.isNull() ? result : Util::JsonToString(response));
 			hb_error++;
-			if (hb_error >= 3) {
+			if (hb_error >= 3 && is_stopped == false) {
 				RegisterSlave();
+				ClearTasks();
+				exec_tasks.clear();
 				hb_error = 0;
 			}
 		} else {
@@ -527,6 +572,8 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 				task->error_msg += ": Access violation";
 		} else if (exit_code == ERROR_PROCESS_ABORTED)
 			task->error_msg = "Terminated by user";
+		else if (exit_code == ERROR_PROCESS_RESCHEDULE)
+			task->error_msg = "Expelled from executing node";
 		task->out_file.close();
 		task->err_file.close();
 		CloseHandle(task->out_read_pipe);
@@ -535,7 +582,7 @@ void SlaveServer::MonitorTask(TaskExecInfoPtr task)
 		task->err_read_pipe = NULL;
 	} while (false);
 
-	if (exit_code != ERROR_PROCESS_ABORTED) {
+	if (exit_code != ERROR_PROCESS_ABORTED && exit_code != ERROR_PROCESS_RESCHEDULE) {
 		// transfer stdout and stderr files to cluster master
 		auto UploadTaskLogFile = [&task](const std::string& file_path, const std::string& master_addr) {
 			if (!boost::filesystem::exists(file_path))
